@@ -72,7 +72,6 @@ export default function SettingsPage() {
             ))}
           </div>
           <div className="mt-3 space-y-2 text-xs">
-            <Row label="Simulation mode" value={bool(meta?.simulation_mode)} />
             <Row label="Selected device" value={status?.data_source ?? "unknown"} />
             <Row label="Ollama model" value={status?.ollama?.model ?? "unavailable"} />
             <Row label="Alert rules loaded" value={String(workers?.rules_loaded ?? meta?.alert_rules.length ?? 0)} />
@@ -91,7 +90,7 @@ DATABASE_URL=sqlite:///./data/environmental.db
 CORS_ORIGINS=http://localhost:5173
 OLLAMA_HOST=http://localhost:11434
 OLLAMA_MODEL=            # empty = auto-detect from installed models
-SIMULATION_MODE=false
+OLLAMA_DISABLE_THINKING=false
 RISK_CONFIG_FILE=        # optional JSON to replace the risk model
 
 # frontend/.env
@@ -108,7 +107,7 @@ VITE_PROXY_TARGET=http://127.0.0.1:8000`}
       <Card>
         <SectionHeader
           title="Data truthfulness"
-          subtitle="How this platform distinguishes measured, simulated and predicted information"
+          subtitle="How this platform distinguishes measured, derived and predicted information"
           icon={<ShieldCheck size={16} />}
           className="mb-3"
         />
@@ -117,10 +116,6 @@ VITE_PROXY_TARGET=http://127.0.0.1:8000`}
             <div className="flex items-center gap-2">
               <DataBadge source="arduino" />
               <span>Values measured by the physical Arduino node and stored with source=arduino.</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <DataBadge source="simulation" />
-              <span>Synthetic values from the shared simulation model; labelled everywhere, never presented as hardware.</span>
             </div>
             <div className="flex items-center gap-2">
               <DataBadge predicted />
@@ -159,9 +154,7 @@ VITE_PROXY_TARGET=http://127.0.0.1:8000`}
       <Card>
         <SectionHeader title="Data source in use" icon={<Info size={16} />} className="mb-3" />
         <div className="flex flex-wrap items-center gap-3 text-xs text-slate-600 dark:text-slate-300">
-          {overview?.data_source === "simulation" ? (
-            <DataBadge source="simulation" />
-          ) : overview?.data_source === "arduino" ? (
+          {overview?.data_source === "arduino" ? (
             <DataBadge source="arduino" />
           ) : (
             <DataBadge source="unknown" />

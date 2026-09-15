@@ -101,7 +101,7 @@ export default function SensorDetail() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {overview.data_source === "simulation" ? <DataBadge source="simulation" /> : <DataBadge source={overview.data_source} />}
+          <DataBadge source={overview.data_source} />
           <Chip severity={channel.severity}>
             <StatusDot severity={channel.severity} />
             {channel.status}

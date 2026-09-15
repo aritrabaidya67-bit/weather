@@ -13,7 +13,7 @@ import {
   unitSymbol,
 } from "../../utils/format";
 import { Sparkline } from "../charts/Sparkline";
-import { Chip, DataBadge, StatusDot } from "../common/Ui";
+import { Chip, StatusDot } from "../common/Ui";
 
 const ICONS: Record<string, typeof Thermometer> = {
   thermometer: Thermometer,
@@ -24,7 +24,7 @@ const ICONS: Record<string, typeof Thermometer> = {
   "cloud-rain": CloudRain,
 };
 
-export function MetricCard({ card, simulated, index = 0 }: { card: ChannelCardType; simulated: boolean; index?: number }) {
+export function MetricCard({ card, index = 0 }: { card: ChannelCardType; index?: number }) {
   const Icon = ICONS[card.icon] ?? Gauge;
   const hasValue = card.value !== null && card.value !== undefined;
 
@@ -96,11 +96,7 @@ export function MetricCard({ card, simulated, index = 0 }: { card: ChannelCardTy
             1h: {card.stats.min?.toFixed(card.decimals) ?? "—"}–{card.stats.max?.toFixed(card.decimals) ?? "—"}{" "}
             {unitSymbol(card.unit)}
           </span>
-          {simulated ? (
-            <DataBadge source="simulation" />
-          ) : card.stale ? (
-            <Chip severity="warning">stale</Chip>
-          ) : null}
+          {card.stale ? <Chip severity="warning">stale</Chip> : null}
         </div>
       </Link>
     </motion.div>

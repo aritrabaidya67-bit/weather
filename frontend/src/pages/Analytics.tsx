@@ -34,7 +34,7 @@ interface TrendRow {
 }
 
 export default function Analytics() {
-  const { overview, meta } = usePlatform();
+  const { overview } = usePlatform();
   const [range, setRange] = useState(RANGES[1]);
   const [history, setHistory] = useState<HistoryResponse | null>(null);
   const [trends, setTrends] = useState<Record<string, TrendRow> | null>(null);
@@ -60,7 +60,6 @@ export default function Analytics() {
     void api.summary(summaryPeriod).then(setSummary).catch(() => setSummary(null));
   }, [summaryPeriod, overview?.latest?.received_at]);
 
-  const simulated = overview?.data_source === "simulation" || Boolean(meta?.simulation_mode);
 
   if (!overview?.has_data) {
     return (
@@ -68,7 +67,7 @@ export default function Analytics() {
         <EmptyState
           icon={<LineChart size={20} />}
           title="No data to analyse"
-          message="Analytics needs stored readings. Start the simulator or flash the Arduino firmware and this page fills in automatically."
+          message="Analytics needs stored readings. It fills in automatically once the Arduino node starts reporting."
         />
       </Card>
     );
@@ -82,7 +81,7 @@ export default function Analytics() {
         icon={<BarChart3 size={16} />}
         action={
           <div className="flex flex-wrap items-center gap-2">
-            {simulated ? <DataBadge source="simulation" /> : <DataBadge source={overview.data_source} />}
+            <DataBadge source={overview.data_source} />
             <div className="flex gap-1">
               {RANGES.map((item) => (
                 <button

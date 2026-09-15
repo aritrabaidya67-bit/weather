@@ -1,10 +1,10 @@
 """Sensor ingestion pipeline.
 
-One code path handles every source: real Arduino firmware, the standalone
-simulator process and the built-in demo generator all POST the same payload shape
-into :meth:`SensorService.ingest`, so validation, normalisation, risk scoring,
-anomaly detection, alerting, persistence and realtime publication cannot diverge
-between "real" and "demo" operation.
+The Arduino firmware POSTs one payload shape into :meth:`SensorService.ingest`,
+where validation, normalisation, risk scoring, anomaly detection, alerting,
+persistence and realtime publication happen in a single ordered pipeline. Tests
+drive the very same method, so behaviour cannot diverge between the edge device
+and automated verification.
 
 Rejection policy (never silently accept garbage):
 
@@ -106,9 +106,7 @@ class SensorService:
     ) -> dict[str, Any]:
         started = time.perf_counter()
         device_id = payload.device_id or self.settings.device_id
-        source = source_override or payload.source or (
-            "simulation" if device_id.startswith("simulator") else "arduino"
-        )
+        source = source_override or payload.source or "arduino"
 
         received_at = utcnow()
         measured_at, timestamp_warnings = self._resolve_timestamp(payload, received_at)
@@ -254,8 +252,6 @@ class SensorService:
             source=source,
         )
         self.alerts.resolve_device_offline(device_id)
-        if self.settings.simulation_mode and source == "simulation":
-            self.alerts.raise_simulation_mode(device_id)
 
         self.session.commit()
 
@@ -531,7 +527,6 @@ class SensorService:
                 "source": source,
                 "timestamp": reading.measured_at.isoformat(),
                 "received_at": reading.received_at.isoformat(),
-                "simulated": source == "simulation",
                 "metrics": {
                     key: metrics.get(key)
                     for key in (

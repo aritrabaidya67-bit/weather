@@ -9,6 +9,7 @@ up on what it missed instead of showing a stale dashboard.
 from __future__ import annotations
 
 import asyncio
+from contextlib import asynccontextmanager
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -90,7 +91,14 @@ class EventBus:
     def last_event_id(self) -> int:
         return self._counter
 
+    @asynccontextmanager
     async def subscribe(self) -> AsyncIterator[asyncio.Queue[Event]]:
+        """Yield a queue that receives live events until the context exits.
+
+        This must be an ``asynccontextmanager``: both the WebSocket and the SSE
+        endpoint enter it with ``async with``, and a bare async generator would
+        raise before any event was ever delivered.
+        """
         queue: asyncio.Queue[Event] = asyncio.Queue(maxsize=self._queue_size)
         async with self._lock:
             self._subscribers.add(queue)

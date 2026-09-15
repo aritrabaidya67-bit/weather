@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 
 import pytest
@@ -108,7 +109,7 @@ def test_context_contains_only_real_platform_data(chat_service):
     context = service.build_context("arduino-r4-wifi-01")
     assert context["current_reading"]["temperature_c"]["value"] == 24.6
     assert context["risk"]["score"] is not None
-    assert context["data_source"] in {"live hardware", "simulated"}
+    assert context["data_source"] == "live hardware"
     assert context["data_quality"]["has_any_data"] is True
     assert "prediction" in context
     assert context["as_of"]
@@ -128,9 +129,34 @@ def test_system_prompt_forbids_inventing_values(chat_service):
     assert messages[-1]["content"] == "What is the temperature?"
 
 
+def _seed_one_reading() -> None:
+    """Store a single hardware-shaped reading so the model path is reachable."""
+    from app.core.database import get_session_factory
+    from app.schemas import SensorPayload
+    from app.services import SensorService
+
+    payload = {
+        "device_id": "arduino-r4-wifi-01",
+        "temperature_c": 24.6,
+        "humidity_pct": 52.0,
+        "bmp_temperature_c": 24.4,
+        "pressure_hpa": 1012.6,
+        "rain_raw": 940.0,
+        "ldr_raw": 700.0,
+        "air_quality_raw": 205.0,
+    }
+    session = get_session_factory()()
+    try:
+        SensorService(session).ingest(SensorPayload.model_validate(payload), raw_body=payload)
+        session.commit()
+    finally:
+        session.close()
+
+
 @pytest.mark.asyncio
 async def test_chat_uses_the_stubbed_model_and_returns_citations(chat_service):
     service, stub = chat_service
+    _seed_one_reading()
     result = await service.answer(
         device_id="arduino-r4-wifi-01", message="Why is the risk score what it is?", session_id="s1"
     )
@@ -142,10 +168,11 @@ async def test_chat_uses_the_stubbed_model_and_returns_citations(chat_service):
 
 
 @pytest.mark.asyncio
-async def test_chat_falls_back_when_ollama_is_down(chat_service, monkeypatch):
+async def test_chat_falls_back_when_ollama_is_down(chat_service):
     from app.core.database import get_session_factory
     from app.services.chatbot_service import ChatbotService
 
+    _seed_one_reading()
     session = get_session_factory()()
     service = ChatbotService(session, client=_BrokenClient())
     result = await service.answer(
@@ -156,6 +183,22 @@ async def test_chat_falls_back_when_ollama_is_down(chat_service, monkeypatch):
     assert result["warning"]
     assert "rule-based analyst" in result["warning"]
     assert result["answer"]
+
+
+@pytest.mark.asyncio
+async def test_chat_without_any_readings_never_calls_the_model(chat_service):
+    """With an empty database there is no environment to describe, so the answer
+    must come from the platform's own state check - never from a model that could
+    narrate a risk score that only exists as a default."""
+    service, stub = chat_service
+    result = await service.answer(
+        device_id="arduino-r4-wifi-01", message="What is the current risk?", session_id="s3"
+    )
+    assert stub.calls == []
+    assert result["model"] is None
+    assert result["fallback_used"] is True
+    assert result["data_available"] is False
+    assert "No sensor data has been received yet" in result["answer"]
 
 
 def test_fallback_analyst_says_there_is_no_data(chat_service):
@@ -284,6 +327,29 @@ def test_realtime_websocket_delivers_readings(client, monkeypatch):
                 break
         assert "reading" in topics_seen
         assert "risk" in topics_seen
+
+
+@pytest.mark.asyncio
+async def test_event_bus_subscribe_delivers_live_events():
+    """Regression guard for the realtime transports.
+
+    ``subscribe()`` must be an async *context manager* that pushes live events.
+    When it was a bare async generator both the WebSocket and the SSE endpoint
+    raised as soon as they entered the context, and tests that only exercised
+    replayed history kept passing while no live event ever reached the UI.
+    """
+    from app.core.realtime import bus
+
+    async with bus.subscribe() as queue:
+        assert bus.subscriber_count == 1
+        published = bus.publish("reading", {"device_id": "arduino-r4-wifi-01", "value": 27.4})
+        received = await asyncio.wait_for(queue.get(), timeout=1.0)
+        assert received.event_id == published.event_id
+        assert received.topic == "reading"
+        message = received.to_message()
+        assert message["data"]["value"] == 27.4
+        assert message["id"] == published.event_id
+    assert bus.subscriber_count == 0
 
 
 def test_realtime_status_and_history_replay(client):

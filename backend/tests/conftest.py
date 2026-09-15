@@ -27,7 +27,6 @@ def _isolated_environment() -> Iterator[None]:
             "API_KEY": TEST_API_KEY,
             "ENVIRONMENT": "test",
             "LOG_LEVEL": "WARNING",
-            "SIMULATION_MODE": "false",
             "BACKGROUND_WORKERS_ENABLED": "false",
             "OLLAMA_ENABLED": "false",
             "ANALYTICS_DEFAULT_HOURS": "6",

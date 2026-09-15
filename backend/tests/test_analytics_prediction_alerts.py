@@ -22,7 +22,7 @@ def _seed_series(client, *, count: int = 40, start_temp: float = 24.0, step: flo
                     device_id="arduino-r4-wifi-01",
                     measured_at=timestamp,
                     received_at=timestamp,
-                    source="simulation",
+                    source="arduino",
                     temperature_c=round(start_temp + index * step, 2),
                     humidity_pct=round(60.0 - index * 0.1, 2),
                     bmp_temperature_c=round(start_temp + index * step, 2),
@@ -88,14 +88,14 @@ def test_overview_has_every_dashboard_section(client):
     _seed_series(client, count=40)
     body = client.get("/api/v1/analytics/overview").json()
     assert body["has_data"] is True
-    assert body["data_source"] == "simulation"
+    assert body["data_source"] == "arduino"
     assert len(body["channels"]) == 6
     channel = body["channels"][0]
     assert {"value", "unit", "status", "trend", "sparkline", "stats"} <= set(channel)
     assert body["risk"]["score"] >= 0
     assert body["classification"]["label"]
     assert body["sensor_health"]
-    assert any("simulator" in note.lower() for note in body["notes"])
+    assert isinstance(body["notes"], list)
 
 
 def test_observations_are_evidence_backed(client):
@@ -258,7 +258,7 @@ def test_status_endpoint_reports_offline_before_any_data(client):
     assert body["backend"] == "online"
     assert body["device_online"] is False
     assert body["reading_stale"] is True
-    assert body["data_source"] in {"unknown", "arduino", "simulation"}
+    assert body["data_source"] in {"unknown", "arduino"}
 
 
 def test_status_is_online_after_a_reading(client):

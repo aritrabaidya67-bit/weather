@@ -11,14 +11,12 @@ import type { OllamaStatus } from "../types";
 import { relativeTime } from "../utils/format";
 
 export default function ChatPage() {
-  const { overview, meta, status, deviceId } = usePlatform();
+  const { overview, status, deviceId } = usePlatform();
   const [ollama, setOllama] = useState<OllamaStatus | null>(null);
 
   useEffect(() => {
     void api.chatStatus().then(setOllama).catch(() => setOllama(null));
   }, []);
-
-  const simulated = overview?.data_source === "simulation" || Boolean(meta?.simulation_mode);
 
   return (
     <div className="space-y-5">
@@ -26,7 +24,7 @@ export default function ChatPage() {
         title="AI analyst"
         subtitle="Ask questions about the current and historical environment. Answers are grounded in this platform's own data."
         icon={<BrainCircuit size={16} />}
-        action={simulated ? <DataBadge source="simulation" /> : <DataBadge source={overview?.data_source} />}
+        action={<DataBadge source={overview?.data_source} />}
       />
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
@@ -80,8 +78,8 @@ export default function ChatPage() {
               <li>• Sensor health and device connectivity status</li>
             </ul>
             <InlineNote severity="watch" className="mt-3">
-              The model is instructed never to invent a sensor value and to say when data is missing, stale or
-              simulated. If it cannot answer from the snapshot it must say so.
+              The model is instructed never to invent a sensor value and to say when data is missing or stale. If it
+              cannot answer from the snapshot it must say so.
             </InlineNote>
             <div className="mt-3 flex flex-wrap gap-2 text-[11px]">
               <Link to="/risk" className="text-cyan-600 hover:underline dark:text-cyan-400">
@@ -100,7 +98,7 @@ export default function ChatPage() {
             <SectionHeader title="Context snapshot" subtitle="Exactly what may be referenced in an answer" icon={<Cpu size={16} />} className="mb-3" />
             {overview?.has_data ? (
               <dl className="grid grid-cols-2 gap-3 text-xs">
-                <Context label="Data source" value={simulated ? "simulated" : overview.data_source} />
+                <Context label="Data source" value={overview.data_source} />
                 <Context label="Last reading" value={relativeTime(overview.latest.received_at)} />
                 <Context label="Risk" value={`${overview.risk.score.toFixed(0)} / L${overview.risk.level}`} />
                 <Context label="Anomalies" value={String(overview.anomalies.length)} />
@@ -116,8 +114,8 @@ export default function ChatPage() {
             )}
             <p className="mt-3 flex items-start gap-1.5 text-[11px] text-slate-400">
               <Info size={11} className="mt-0.5" />
-              Simulations, forecasts and measurements are labelled differently throughout the dashboard so you can
-              always tell what is measured, what is estimated and what is synthetic.
+              Measurements, forecasts and derived analytics are labelled differently throughout the dashboard so you
+              can always tell what was measured from what was estimated.
             </p>
           </Card>
         </div>

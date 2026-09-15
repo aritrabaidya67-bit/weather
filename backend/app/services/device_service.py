@@ -163,9 +163,6 @@ class DeviceService:
                 + ", ".join(missing)
                 + ". Check wiring/power for those sensors."
             )
-        if device.source == "simulation":
-            notes.append("This device is the built-in simulator, not physical hardware.")
-
         return {
             "device_id": device.device_id,
             "display_name": device.display_name,
@@ -228,7 +225,7 @@ class DeviceService:
             "status": "never_seen",
             "status_message": (
                 "Waiting for the Arduino UNO R4 Wi-Fi to send sensor data. "
-                "This is expected until the firmware is flashed or the simulator is started."
+                "This is expected until the firmware is flashed and the node reaches this backend."
             ),
             "source": "unknown",
             "firmware_version": None,
@@ -276,7 +273,7 @@ class DeviceService:
             "primary_device_id": self.primary_device_id(),
             "offline_message": (
                 "Waiting for the Arduino UNO R4 Wi-Fi to send sensor data. "
-                "Start the simulator or flash the firmware to populate the dashboard."
+                "Check the node's Wi-Fi credentials, the backend IP/port and the firewall rule."
             ),
         }
 

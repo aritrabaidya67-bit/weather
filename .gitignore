@@ -41,6 +41,13 @@ logs/
 *.log
 
 # ---------------------------------------------------------------------------
+# Arduino: the real credentials live in config.h, which stays on your machine.
+# arduino/environmental_monitor/config.example.h is the tracked template.
+# ---------------------------------------------------------------------------
+arduino/**/config.h
+arduino/**/secrets.h
+
+# ---------------------------------------------------------------------------
 # OS / editor / tooling
 # ---------------------------------------------------------------------------
 .DS_Store

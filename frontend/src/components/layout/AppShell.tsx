@@ -45,7 +45,6 @@ export function AppShell({ children }: { children: ReactNode }) {
   const {
     status,
     overview,
-    meta,
     connection,
     connectionDetail,
     refreshing,
@@ -55,7 +54,6 @@ export function AppShell({ children }: { children: ReactNode }) {
     activeAlerts,
   } = useAppShellState();
 
-  const simulated = Boolean(meta?.simulation_mode) || overview?.data_source === "simulation";
   const fresh = freshnessLabel(overview?.latest?.received_at ?? null);
   const risk = overview?.risk;
 
@@ -127,7 +125,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               </div>
 
               <div className="flex flex-wrap items-center gap-1.5">
-                {simulated ? <DataBadge source="simulation" /> : <DataBadge source={overview?.data_source} />}
+                <DataBadge source={overview?.data_source} />
                 <StatusPill
                   label={
                     status?.device_online
@@ -146,7 +144,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                   severity={connectionSeverity}
                   pulse={connection === "live"}
                 />
-                {risk ? (
+                {risk && overview?.has_data ? (
                   <span
                     className="hidden items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium sm:inline-flex"
                     style={{ borderColor: `${riskColor(risk.level)}66`, color: riskColor(risk.level) }}

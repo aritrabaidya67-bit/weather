@@ -73,8 +73,12 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                     await websocket.send_json(event.to_message())
     except WebSocketDisconnect:
         logger.info("websocket_disconnected", topics=topics)
-    except Exception:  # noqa: BLE001 - a broken socket must not spam the logs as an error
-        logger.warning("websocket_error", topics=topics)
+    except Exception as exc:  # noqa: BLE001 - a broken socket must not spam the logs as an error
+        # The type and message are logged at warning level (a dropped client is
+        # routine); the full traceback goes to debug so a real defect is still
+        # diagnosable without flooding production logs.
+        logger.warning("websocket_error", topics=topics, error_type=type(exc).__name__, error=str(exc))
+        logger.debug("websocket_error_detail", topics=topics, exc_info=True)
 
 
 @router.get("/events", summary="Server-Sent Events stream (fallback for the WebSocket)")

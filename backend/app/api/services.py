@@ -20,7 +20,6 @@ from ..services import (  # noqa: F401
     RiskService,
     SensorService,
     get_ollama_client,
-    runner,
     scheduler,
 )
 
@@ -37,6 +36,5 @@ __all__ = [
     "RiskService",
     "SensorService",
     "get_ollama_client",
-    "runner",
     "scheduler",
 ]

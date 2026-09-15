@@ -9,13 +9,13 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter
 
 from ...core.config import get_settings
 from ...schemas import DeviceListResponse, DeviceOut, RiskStateResponse
 from ...utils.timeutils import ensure_utc, utcnow
 from ..deps import ApiKeyDep, DeviceDep, ReadAccessDep, SessionDep
-from ..services import AlertService, AnalyticsService, DeviceService, RiskService, runner
+from ..services import AlertService, AnalyticsService, DeviceService, RiskService
 
 router = APIRouter(prefix="/device", tags=["device"])
 
@@ -86,38 +86,6 @@ def risk_state(
         data_source=latest.source,
         alerts_active=AlertService(session).repository.count(device_id, active_only=True),
     )
-
-
-@router.get("/simulation/status", summary="Built-in simulation mode status")
-def simulation_status(_: ReadAccessDep) -> dict[str, Any]:
-    return runner.status()
-
-
-@router.post("/simulation/start", summary="Start the built-in simulator (demo mode)")
-def simulation_start() -> dict[str, Any]:
-    import asyncio
-
-    if runner.running:
-        return {"success": True, "message": "Simulator already running.", "status": runner.status()}
-    try:
-        asyncio.get_running_loop()
-    except RuntimeError:  # pragma: no cover - only outside an event loop
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="No running event loop available.",
-        ) from None
-    asyncio.create_task(runner.start())
-    return {"success": True, "message": "Simulator starting.", "status": runner.status()}
-
-
-@router.post("/simulation/stop", summary="Stop the built-in simulator")
-def simulation_stop() -> dict[str, Any]:
-    import asyncio
-
-    if not runner.running:
-        return {"success": True, "message": "Simulator is not running.", "status": runner.status()}
-    asyncio.create_task(runner.stop())
-    return {"success": True, "message": "Simulator stopping.", "status": runner.status()}
 
 
 @router.delete("/{device_id}/readings", summary="Delete stored readings for a device (admin)")

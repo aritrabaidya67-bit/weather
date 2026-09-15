@@ -1,8 +1,9 @@
-"""Realistic environmental simulation model.
+"""Deterministic environmental model used **only** by the automated tests.
 
-This module is shared by the standalone simulator process *and* the backend's
-built-in demo mode, so both feed the exact same payload shape through the exact
-same ingestion pipeline as the real Arduino.
+It produces payloads in exactly the Arduino firmware's shape and they are pushed
+through the very same ``SensorService.ingest`` pipeline as real hardware, so the
+production application ships without a single line of simulation code while the
+test suite still covers the full data path.
 
 Design goals:
 
@@ -322,12 +323,11 @@ class EnvironmentSimulator:
             "device_id": self.device_id,
             "timestamp": self.wall_clock.isoformat(),
             "sequence": self._sequence,
-            "firmware_version": "1.0.0-sim",
+            "firmware_version": "1.0.0",
             "uptime_ms": int(self._elapsed_seconds * 1000),
             "ip_address": self.ip_address,
             "rssi": self.rssi + int(self.random.gauss(0, 2)),
             "transmission_interval_ms": self.transmission_interval_ms,
-            "source": "simulation",
             **{key: round(value, 2) for key, value in measurements.items()},
         }
         # The firmware also sends its locally derived classification strings; the

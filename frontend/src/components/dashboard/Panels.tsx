@@ -255,20 +255,20 @@ export function AlertFeed({ alerts, limit = 6 }: { alerts: Alert[]; limit?: numb
   );
 }
 
-export function DeviceStatusCard({ device, simulated }: { device: DeviceStatus | null; simulated: boolean }) {
+export function DeviceStatusCard({ device }: { device: DeviceStatus | null }) {
   if (!device) {
     return (
       <EmptyState
         icon={<Cpu size={18} />}
         title="Arduino offline"
-        message="Waiting for the Arduino UNO R4 Wi-Fi to send sensor data. This is expected until the firmware is flashed or the simulator is started."
+        message="Waiting for the Arduino UNO R4 Wi-Fi to send sensor data. This is expected until the firmware is flashed and the node reaches this backend."
       />
     );
   }
   const rows: { label: string; value: string; icon: typeof Wifi }[] = [
     { label: "State", value: device.online ? "Online" : device.status.replace("_", " "), icon: Activity },
     { label: "Last payload", value: relativeTime(device.last_payload_at), icon: Activity },
-    { label: "Source", value: simulated ? "Simulator" : device.source, icon: Cpu },
+    { label: "Source", value: device.source, icon: Cpu },
     { label: "Firmware", value: device.firmware_version ?? "not reported", icon: Cpu },
     { label: "IP address", value: device.ip_address ?? "not reported", icon: Antenna },
     {

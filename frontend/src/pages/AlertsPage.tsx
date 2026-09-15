@@ -2,7 +2,7 @@
 
 import { BellRing, Check, ListChecks, RefreshCw, ShieldCheck } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
-import { Card, CardSkeleton, Chip, DataBadge, EmptyState, ErrorState, SectionHeader } from "../components/common/Ui";
+import { Card, CardSkeleton, Chip, EmptyState, ErrorState, SectionHeader } from "../components/common/Ui";
 import { api, ApiError } from "../services/api";
 import { usePlatform } from "../state/PlatformContext";
 import type { Alert, AlertList } from "../types";
@@ -41,7 +41,6 @@ export default function AlertsPage() {
     }
   };
 
-  const simulated = Boolean(meta?.simulation_mode);
 
   return (
     <div className="space-y-5">
@@ -51,7 +50,6 @@ export default function AlertsPage() {
         icon={<BellRing size={16} />}
         action={
           <div className="flex flex-wrap items-center gap-2">
-            {simulated ? <DataBadge source="simulation" /> : null}
             <button
               type="button"
               onClick={load}

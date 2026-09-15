@@ -10,7 +10,6 @@ from .ollama_client import OllamaClient, OllamaUnavailable, get_ollama_client
 from .prediction_service import PredictionService
 from .risk_service import BUZZER_PATTERNS, RiskInputs, RiskService
 from .sensor_service import IngestionRejected, SensorService
-from .simulation_service import SimulationRunner, runner
 
 __all__ = [
     "ALERT_RULES",
@@ -27,8 +26,6 @@ __all__ = [
     "RiskInputs",
     "RiskService",
     "SensorService",
-    "SimulationRunner",
     "get_ollama_client",
-    "runner",
     "scheduler",
 ]

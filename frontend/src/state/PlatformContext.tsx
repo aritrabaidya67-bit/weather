@@ -5,7 +5,7 @@
  * status, the dashboard overview, device status, active alerts and the latest
  * forecast. It merges in realtime events so the UI updates without refetching
  * whole pages, and it exposes an explicit connection state plus the reason, so
- * every page can render honest "offline / stale / simulated" states.
+ * every page can render honest "offline / stale / no data" states.
  */
 
 import {
@@ -231,7 +231,7 @@ export function PlatformProvider({ children }: { children: ReactNode }) {
           current ? { ...current, device_online: Boolean(event.data.online), arduino: String(event.data.status ?? "") } : current,
         );
       }
-      // Throttle the heavier refresh so a fast simulator cannot thrash the API.
+      // Throttle the heavier refresh so a fast device cannot thrash the API.
       if (now - lastLiveAt.current > LIVE_THROTTLE_MS) {
         lastLiveAt.current = now;
         applyLive();

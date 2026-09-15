@@ -37,7 +37,7 @@ export default function RiskPage() {
         <EmptyState
           icon={<ShieldAlert size={20} />}
           title="No risk assessment yet"
-          message="Risk is calculated from real readings. Once the Arduino or simulator sends data, this page explains exactly which factors drive the score."
+          message="Risk is calculated from real readings. Once the Arduino node sends data, this page explains exactly which factors drive the score."
         />
       </Card>
     );
@@ -51,7 +51,7 @@ export default function RiskPage() {
         title="Risk analysis"
         subtitle="An auditable score: every factor's contribution is shown, and the model is fully configurable."
         icon={<ShieldAlert size={16} />}
-        action={overview.data_source === "simulation" ? <DataBadge source="simulation" /> : <DataBadge source={overview.data_source} />}
+        action={<DataBadge source={overview.data_source} />}
       />
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)]">

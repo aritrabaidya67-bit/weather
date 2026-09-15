@@ -32,7 +32,7 @@ const METRIC_TABS = [
 ];
 
 export default function Dashboard() {
-  const { overview, status, device, meta, loading, error, connection, refresh } = usePlatform();
+  const { overview, status, device, loading, error, connection, refresh } = usePlatform();
   const [range, setRange] = useState(RANGES[2]);
   const [metricKey, setMetricKey] = useState(METRIC_TABS[0].key);
   const [history, setHistory] = useState<HistoryResponse | null>(null);
@@ -61,7 +61,6 @@ export default function Dashboard() {
     };
   }, [range, overview?.latest?.received_at]);
 
-  const simulated = overview?.data_source === "simulation" || Boolean(meta?.simulation_mode);
   const activeMetric = METRIC_TABS.find((item) => item.key === metricKey) ?? METRIC_TABS[0];
   const series = history?.series?.[metricKey];
 
@@ -106,16 +105,19 @@ export default function Dashboard() {
             title="Arduino offline - waiting for first data"
             message={
               overview?.device?.status_message ??
-              "Waiting for the Arduino UNO R4 Wi-Fi to send sensor data. Start the simulator (python simulator/run_simulator.py) or flash the firmware to populate the dashboard."
+              "Waiting for the Arduino UNO R4 Wi-Fi to send sensor data. Flash the firmware, point it at this machine's LAN IP and the dashboard fills in automatically."
             }
             action={
               <div className="flex flex-wrap items-center justify-center gap-2 text-xs text-slate-500 dark:text-slate-400">
                 <Link to="/device" className="rounded-lg border border-slate-200 px-3 py-1.5 transition hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800">
                   Hardware setup
                 </Link>
-                <Link to="/settings" className="rounded-lg border border-slate-200 px-3 py-1.5 transition hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800">
-                  Enable simulation mode
-                </Link>
+                <a
+                  href="/docs"
+                  className="rounded-lg border border-slate-200 px-3 py-1.5 transition hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800"
+                >
+                  API documentation
+                </a>
               </div>
             }
           />
@@ -139,7 +141,7 @@ export default function Dashboard() {
                     <Chip severity={overview.risk.level >= 4 ? "critical" : overview.risk.level === 3 ? "watch" : "good"}>
                       {overview.risk.code.replace("_", " ")}
                     </Chip>
-                    {simulated ? <DataBadge source="simulation" /> : <DataBadge source={overview.data_source} />}
+                    <DataBadge source={overview.data_source} />
                     {overview.stale ? <Chip severity="warning">stale reading</Chip> : null}
                   </div>
                   <p className="text-sm leading-relaxed text-slate-600 dark:text-slate-300">
@@ -172,11 +174,11 @@ export default function Dashboard() {
               <Card>
                 <SectionHeader
                   title="Device"
-                  subtitle={simulated ? "Simulator source active" : "Arduino UNO R4 Wi-Fi"}
+                  subtitle="Arduino UNO R4 Wi-Fi"
                   icon={<Cpu size={16} />}
                   className="mb-3"
                 />
-                <DeviceStatusCard device={device} simulated={simulated} />
+                <DeviceStatusCard device={device} />
               </Card>
               <Card>
                 <SectionHeader
@@ -193,7 +195,7 @@ export default function Dashboard() {
           {/* Metric cards */}
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
             {overview.channels.map((card, index) => (
-              <MetricCard key={card.channel} card={card} simulated={simulated} index={index} />
+              <MetricCard key={card.channel} card={card} index={index} />
             ))}
           </div>
 

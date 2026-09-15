@@ -165,8 +165,6 @@ export function freshnessLabel(iso: string | null | undefined, staleAfterSeconds
 
 export function dataSourceLabel(source: string | null | undefined): string {
   switch (source) {
-    case "simulation":
-      return "SIMULATED";
     case "arduino":
       return "LIVE HARDWARE";
     case "api":

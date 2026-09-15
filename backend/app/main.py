@@ -25,7 +25,7 @@ from .core.database import describe_database, init_db
 from .core.logging import configure_logging, get_logger
 from .core.realtime import bus
 from .core.security import keys_are_configured, register_secret
-from .services import IngestionRejected, runner, scheduler
+from .services import IngestionRejected, scheduler
 from .utils.timeutils import utcnow
 
 settings = get_settings()
@@ -61,7 +61,6 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         environment=settings.environment,
         host=settings.backend_host,
         port=settings.backend_port,
-        simulation_mode=settings.simulation_mode,
     )
     register_secret(settings.api_key)
     register_secret(settings.admin_api_key)
@@ -73,13 +72,10 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     init_db()
     logger.info("database_ready", database=describe_database())
     await scheduler.start()
-    if settings.simulation_mode:
-        await runner.start()
-    bus.publish("system", {"message": "backend started", "simulation_mode": settings.simulation_mode})
+    bus.publish("system", {"message": "backend started"})
     try:
         yield
     finally:
-        await runner.stop()
         await scheduler.stop()
         logger.info("api_stopped")
 
@@ -186,7 +182,6 @@ def root() -> dict[str, Any]:
         "api": API_PREFIX,
         "docs": "/docs",
         "health": f"{API_PREFIX}/health",
-        "simulation_mode": settings.simulation_mode,
     }
 
 

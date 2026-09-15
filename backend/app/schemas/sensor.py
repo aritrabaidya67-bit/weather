@@ -17,7 +17,7 @@ _STATUS_FIELDS = ("rain_status", "light_status", "air_quality_status")
 
 
 class SensorPayload(BaseModel):
-    """Payload accepted from the Arduino (or the simulator).
+    """Payload accepted from the Arduino node.
 
     Both shapes are accepted:
 
@@ -39,7 +39,9 @@ class SensorPayload(BaseModel):
     ip_address: str | None = Field(default=None, max_length=64)
     rssi: int | None = Field(default=None, ge=-127, le=10)
     transmission_interval_ms: int | None = Field(default=None, ge=100, le=3_600_000)
-    source: Literal["arduino", "simulation", "api", "manual"] | None = None
+    #: ``arduino`` is the normal edge-device value; ``api``/``manual`` cover
+    #: integrations and tests that post through the documented endpoint.
+    source: Literal["arduino", "api", "manual"] | None = None
     sensors_available: list[str] | None = None
     sensors_missing: list[str] | None = None
 
@@ -145,7 +147,7 @@ class SensorReadingOut(BaseModel):
 
 
 class IngestionResponse(BaseModel):
-    """Response returned to the Arduino / simulator after POST /sensors/data."""
+    """Response returned to the Arduino after POST /sensors/data."""
 
     success: bool
     accepted: bool

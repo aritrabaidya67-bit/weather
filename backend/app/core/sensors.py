@@ -3,8 +3,7 @@
 Every sensor known to the platform is described here exactly once. Validation
 ranges, units, chart metadata, interpretation bands, anomaly sensitivities and
 legacy payload aliases all derive from this registry, so the Arduino firmware,
-the simulator, the analytics engine and the frontend metadata endpoint cannot
-drift apart.
+the analytics engine and the frontend metadata endpoint cannot drift apart.
 
 Sources for the physical ranges below (kept deliberately conservative and
 documented so no fabricated precision is introduced):
@@ -270,8 +269,8 @@ REGISTRY: dict[str, SensorSpec] = {
     ),
 }
 
-#: The six physical measurement channels the dashboard, simulator and firmware
-#: all speak about. Each channel maps to one primary metric plus extra fields.
+#: The six physical measurement channels the dashboard, backend and firmware all
+#: speak about. Each channel maps to one primary metric plus extra fields.
 CHANNELS: dict[str, dict[str, object]] = {
     "temperature": {
         "key": "temperature",

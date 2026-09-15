@@ -2,7 +2,7 @@
  * Typed API client.
  *
  * The browser only ever talks to the FastAPI backend; no secret is embedded here
- * (device authentication lives on the Arduino/simulator side). By default the
+ * (device authentication lives on the Arduino side). By default the
  * client uses same-origin `/api/v1` URLs, which the Vite dev server proxies to
  * the backend, so there is no CORS configuration to get wrong locally. Set
  * VITE_API_BASE_URL to point at another host when needed.
@@ -196,10 +196,6 @@ export const api = {
     request<{ count: number; devices: DeviceStatus[]; primary_device_id: string; offline_message: string }>("/device/list"),
   deviceById: (deviceId: string) => request<DeviceStatus>(`/device/${deviceId}`),
   deviceRiskState: (deviceId: string) => request<RiskState>(`/device/${deviceId}/risk-state`),
-  simulationStatus: () => request<WorkerStatus["simulation"]>("/device/simulation/status"),
-  simulationStart: () => request<{ success: boolean; message: string }>("/device/simulation/start", { method: "POST" }),
-  simulationStop: () => request<{ success: boolean; message: string }>("/device/simulation/stop", { method: "POST" }),
-
   sensorHealth: (deviceId?: string) =>
     request<{ overall_health_score: number; sensors: SensorHealth[] }>(`/sensors/health${query({ device_id: deviceId })}`),
   sensorCatalog: () =>

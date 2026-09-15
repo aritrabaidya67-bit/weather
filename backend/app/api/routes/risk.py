@@ -27,7 +27,7 @@ def current(session: SessionDep, _: ReadAccessDep, device_id: DeviceDep) -> Any:
             status_code=status.HTTP_404_NOT_FOUND,
             detail=(
                 "No sensor data yet, so no risk can be calculated. "
-                "Start the simulator or the Arduino firmware."
+                "The risk engine scores the first payload the Arduino node sends."
             ),
         )
     metrics = service._metrics_from_row(latest)  # noqa: SLF001

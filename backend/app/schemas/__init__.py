@@ -1,4 +1,4 @@
-"""Pydantic schemas (the wire contract for Arduino, simulator and frontend)."""
+"""Pydantic schemas (the wire contract for the Arduino, API clients and frontend)."""
 
 from .alert import AlertListResponse, AlertOut, AlertRuleOut
 from .anomaly import Anomaly, AnomalyListResponse

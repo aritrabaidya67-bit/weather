@@ -13,7 +13,6 @@ class HealthResponse(BaseModel):
     environment: str
     uptime_seconds: float
     server_time: str
-    simulation_mode: bool
     database: dict[str, Any] = Field(default_factory=dict)
     device: dict[str, Any] = Field(default_factory=dict)
     ollama: dict[str, Any] = Field(default_factory=dict)
@@ -40,7 +39,6 @@ class SystemStatusResponse(BaseModel):
     device_seconds_since_payload: float | None = None
     reading_stale: bool = False
     realtime_subscribers: int = 0
-    simulation_mode: bool = False
     data_source: str = "unknown"
     ollama: dict[str, Any] = Field(default_factory=dict)
     active_alerts: int = 0

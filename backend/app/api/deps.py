@@ -76,7 +76,6 @@ def settings_summary() -> dict[str, object]:
     settings = get_settings()
     return {
         "environment": settings.environment,
-        "simulation_mode": settings.simulation_mode,
         "device_id": settings.device_id,
         "expected_interval_seconds": settings.expected_transmission_interval_seconds,
         "ollama_enabled": settings.ollama_enabled,

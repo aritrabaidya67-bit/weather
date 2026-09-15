@@ -400,17 +400,6 @@ class Settings(BaseSettings):
     light_dark_adc: float = 40.0
     light_bright_adc: float = 900.0
 
-    # --- simulation -------------------------------------------------------
-    simulation_mode: bool = False
-    simulation_interval_seconds: float = 5.0
-    simulation_scenario: str = "mixed_weather"
-    simulation_seed: int | None = 20260915
-    #: The built-in demo simulator feeds the same device as real hardware by
-    #: default so the dashboard is live out of the box; readings are still
-    #: tagged ``source="simulation"`` and shown as simulated in the UI.
-    simulation_device_id: str = "arduino-r4-wifi-01"
-    simulation_speed: float = 1.0
-
     # --- ollama -----------------------------------------------------------
     ollama_enabled: bool = True
     ollama_host: str = "http://localhost:11434"

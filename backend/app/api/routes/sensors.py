@@ -49,7 +49,7 @@ def catalog(_: ReadAccessDep) -> dict[str, Any]:
     "/data",
     response_model=IngestionResponse,
     status_code=status.HTTP_200_OK,
-    summary="Ingest a sensor payload from the Arduino (or the simulator)",
+    summary="Ingest a sensor payload from the Arduino node",
     description=(
         "Requires the `X-API-Key` header. Accepts both the canonical payload shape and the "
         "legacy flat shape from the original project. Values outside the physical range of a "
@@ -159,7 +159,7 @@ def latest(session: SessionDep, _: ReadAccessDep, device_id: DeviceDep) -> Any:
             status_code=status.HTTP_404_NOT_FOUND,
             detail=(
                 "No reading stored for this device yet. "
-                "Start the simulator or flash the Arduino firmware."
+                "Send a payload to /api/v1/sensors/data or flash the Arduino firmware."
             ),
         )
     return reading

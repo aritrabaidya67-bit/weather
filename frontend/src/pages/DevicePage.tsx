@@ -1,6 +1,6 @@
-/** Hardware page: device telemetry, sensor availability, simulator controls and setup hints. */
+/** Hardware page: device telemetry, sensor availability and firmware setup hints. */
 
-import { Activity, Cpu, Play, Radio, Server, Square, Wifi } from "lucide-react";
+import { Activity, Cpu, Radio, Server, Wifi } from "lucide-react";
 import { useEffect, useState } from "react";
 import { SensorHealthTable } from "../components/dashboard/Panels";
 import { Card, CardSkeleton, Chip, DataBadge, EmptyState, InlineNote, SectionHeader, StatusDot } from "../components/common/Ui";
@@ -10,9 +10,8 @@ import type { WorkerStatus } from "../types";
 import { relativeTime, secondsAgo } from "../utils/format";
 
 export default function DevicePage() {
-  const { device, meta, overview, status, refresh, deviceId } = usePlatform();
+  const { device, meta, overview, status, deviceId } = usePlatform();
   const [workers, setWorkers] = useState<WorkerStatus | null>(null);
-  const [busy, setBusy] = useState(false);
 
   const loadWorkers = () => {
     void api.workers().then(setWorkers).catch(() => setWorkers(null));
@@ -23,20 +22,6 @@ export default function DevicePage() {
     const timer = window.setInterval(loadWorkers, 10_000);
     return () => window.clearInterval(timer);
   }, []);
-
-  const toggleSimulation = async (action: "start" | "stop") => {
-    setBusy(true);
-    try {
-      if (action === "start") await api.simulationStart();
-      else await api.simulationStop();
-      window.setTimeout(() => {
-        loadWorkers();
-        void refresh({ silent: true });
-      }, 800);
-    } finally {
-      setBusy(false);
-    }
-  };
 
   const firmwareSnippet = `// arduino/environmental_monitor/config.h (edit these, never commit real secrets)
 #define WIFI_SSID        "YOUR_HOTSPOT_SSID"
@@ -51,9 +36,9 @@ export default function DevicePage() {
     <div className="space-y-5">
       <SectionHeader
         title="Hardware"
-        subtitle="Arduino UNO R4 Wi-Fi node telemetry, sensor availability and simulator controls."
+        subtitle="Arduino UNO R4 Wi-Fi node telemetry and sensor availability."
         icon={<Cpu size={16} />}
-        action={overview?.data_source === "simulation" ? <DataBadge source="simulation" /> : <DataBadge source={overview?.data_source} />}
+        action={<DataBadge source={overview?.data_source} />}
       />
 
       {!device ? (
@@ -61,26 +46,15 @@ export default function DevicePage() {
           <EmptyState
             icon={<Cpu size={20} />}
             title="Waiting for the Arduino UNO R4 Wi-Fi"
-            message="This is expected during development. Start the built-in simulator below, or run the standalone simulator, or flash the firmware and point it at this machine's LAN IP."
+            message="Power the node, confirm it joined the correct Wi-Fi network, set BACKEND_HOST to this machine's LAN IP (never localhost) and make sure the firewall allows the backend port."
           />
-          <div className="mt-4 flex flex-wrap justify-center gap-2">
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => void toggleSimulation("start")}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-cyan-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-cyan-500 disabled:opacity-50"
-            >
-              <Play size={12} />
-              Start built-in simulator
-            </button>
-          </div>
         </Card>
       ) : (
         <div className="grid gap-4 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]">
           <Card>
             <SectionHeader
               title={device.display_name ?? device.device_id}
-              subtitle={`${device.device_id} · ${device.source === "simulation" ? "simulated source" : "physical hardware"}`}
+              subtitle={`${device.device_id} · ${device.source}`}
               icon={<Radio size={16} />}
               action={
                 <Chip severity={device.online ? "good" : "critical"}>
@@ -156,49 +130,6 @@ export default function DevicePage() {
               </InlineNote>
             </Card>
 
-            <Card>
-              <SectionHeader title="Simulation mode" subtitle="Feeds the real pipeline with synthetic readings" icon={<Play size={15} />} className="mb-3" />
-              {workers ? (
-                <div className="space-y-3">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Chip severity={workers.simulation.running ? "good" : workers.simulation.enabled ? "watch" : "unknown"}>
-                      {workers.simulation.running ? "running" : workers.simulation.enabled ? "enabled, idle" : "disabled"}
-                    </Chip>
-                    <span className="text-xs text-slate-500 dark:text-slate-400">
-                      scenario: {workers.simulation.scenario_label} · every{" "}
-                      {workers.simulation.interval_seconds}s · generated {workers.simulation.generated}
-                    </span>
-                  </div>
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      disabled={busy || workers.simulation.running}
-                      onClick={() => void toggleSimulation("start")}
-                      className="inline-flex items-center gap-1.5 rounded-lg bg-cyan-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-cyan-500 disabled:opacity-40"
-                    >
-                      <Play size={12} />
-                      start
-                    </button>
-                    <button
-                      type="button"
-                      disabled={busy || !workers.simulation.running}
-                      onClick={() => void toggleSimulation("stop")}
-                      className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-slate-100 disabled:opacity-40 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
-                    >
-                      <Square size={11} />
-                      stop
-                    </button>
-                  </div>
-                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                    Scenarios: {workers.simulation.scenarios.map((scenario) => scenario.key).join(", ")}. Start the
-                    backend with SIMULATION_MODE=true to run it automatically, or use the standalone simulator for a
-                    different scenario without restarting the API.
-                  </p>
-                </div>
-              ) : (
-                <CardSkeleton />
-              )}
-            </Card>
           </div>
         </div>
       )}

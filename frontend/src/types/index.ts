@@ -7,7 +7,7 @@
 export type Severity = "good" | "info" | "watch" | "warning" | "critical" | "unknown";
 export type TrendDirection = "rising" | "falling" | "stable" | "unknown";
 export type AlertSeverity = "info" | "warning" | "critical";
-export type DataSource = "arduino" | "simulation" | "api" | "manual" | "unknown";
+export type DataSource = "arduino" | "api" | "manual" | "none" | "unknown";
 
 export interface SensorSpec {
   key: string;
@@ -68,7 +68,6 @@ export interface MetaResponse {
   environment: string;
   server_time: string;
   api_version: string;
-  simulation_mode: boolean;
   risk_model: RiskModel;
   sensors: SensorSpec[];
   channels: ChannelSpec[];
@@ -465,7 +464,6 @@ export interface SystemStatus {
   device_seconds_since_payload: number | null;
   reading_stale: boolean;
   realtime_subscribers: number;
-  simulation_mode: boolean;
   data_source: DataSource;
   ollama: OllamaStatus;
   active_alerts: number;
@@ -560,18 +558,6 @@ export interface WorkerStatus {
     jobs: string[];
     last_runs: Record<string, string>;
     counters: Record<string, number>;
-  };
-  simulation: {
-    enabled: boolean;
-    running: boolean;
-    scenario: string;
-    scenario_label: string;
-    device_id: string;
-    interval_seconds: number;
-    speed: number;
-    generated: number;
-    rejected: number;
-    scenarios: { key: string; label: string }[];
   };
   realtime_subscribers: number;
   rules_loaded: number;

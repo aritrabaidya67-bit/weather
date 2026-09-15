@@ -152,15 +152,6 @@ ALERT_RULES: tuple[AlertRule, ...] = (
         condition="predicted risk level > current risk level",
         default_action="Prepare for deteriorating conditions over the forecast horizon.",
     ),
-    AlertRule(
-        id="simulation_mode",
-        category="mode",
-        severity="info",
-        title="Simulation mode active",
-        description="The backend is generating synthetic readings instead of receiving hardware data.",
-        condition="SIMULATION_MODE=true",
-        default_action="Remember that displayed values are simulated, not physical measurements.",
-    ),
 )
 
 RULES_BY_ID = {rule.id: rule for rule in ALERT_RULES}
@@ -243,22 +234,6 @@ class AlertService:
         if alerts:
             self.session.flush()
         return len(alerts)
-
-    def raise_simulation_mode(self, device_id: str) -> dict[str, Any] | None:
-        rule = RULES_BY_ID["simulation_mode"]
-        candidate = AlertCandidate(
-            category=rule.category,
-            severity=rule.severity,
-            title=rule.title,
-            message=(
-                "SIMULATION_MODE is enabled: readings are produced by the built-in simulator "
-                "and are clearly marked as simulated throughout the API and UI."
-            ),
-            recommended_action=rule.default_action,
-            context={"source": "simulation"},
-        )
-        created = self._upsert(device_id, [candidate])
-        return created[0] if created else None
 
     def acknowledge(self, alert_id: int) -> dict[str, Any] | None:
         alert = self.repository.get(alert_id)

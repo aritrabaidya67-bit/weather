@@ -61,7 +61,7 @@ class DeviceListResponse(BaseModel):
     primary_device_id: str | None = None
     offline_message: str = (
         "Waiting for the Arduino UNO R4 Wi-Fi to send sensor data. "
-        "Start the simulator or flash the firmware to populate the dashboard."
+        "Check that the node is powered, on the same Wi-Fi network and pointed at this backend."
     )
 
 
@@ -101,7 +101,6 @@ class MetaResponse(BaseModel):
     environment: str
     server_time: str
     api_version: str
-    simulation_mode: bool
     risk_model: dict[str, Any]
     sensors: list[dict[str, Any]] = Field(default_factory=list)
     channels: list[dict[str, Any]] = Field(default_factory=list)

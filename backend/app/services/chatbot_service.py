@@ -41,8 +41,8 @@ ABSOLUTE RULES
 2. If a value is null/missing, say the sensor has no reading and, when known, why.
 3. Predictions are statistical estimates. Always state the horizon and confidence,
    and never present a forecast as a certainty.
-4. If the snapshot says the data source is "simulated", say clearly that the values
-   are simulated rather than physical measurements.
+4. The snapshot's data_source field names the source of the readings. If it reports
+   that no data has been received, say so instead of describing conditions.
 5. If the data is stale, say so before giving any assessment.
 6. The air-quality index is a relative index derived from the MQ-135 ADC against a
    clean-air baseline, not a calibrated ppm or official AQI. Say so if you cite it.
@@ -52,6 +52,10 @@ ABSOLUTE RULES
 9. Be concise: a short answer in 2-6 sentences or a compact bullet list, with units.
 10. Only answer questions about this platform's environment, sensors, data, risk,
     forecasts and alerts."""
+
+class _ModelSkipped(Exception):
+    """Internal signal: the platform answers this question without the model."""
+
 
 FALLBACK_WARNING = (
     "Ollama is not available, so this answer was produced by the platform's built-in "
@@ -116,10 +120,7 @@ class ChatbotService:
         alerts = self.analytics.alerts.list(device_id, active_only=True, limit=10)
         context: dict[str, Any] = {
             "as_of": utcnow().isoformat(),
-            "data_source": (
-                "simulated" if latest_row is not None and latest_row.source == "simulation"
-                else ("live hardware" if latest_row is not None else "no data")
-            ),
+            "data_source": "live hardware" if latest_row is not None else "no data",
             "data_quality": {
                 "has_any_data": latest_row is not None,
                 "latest_reading_age_seconds": (
@@ -293,7 +294,24 @@ class ChatbotService:
         fallback_used = False
         warning: str | None = None
         model: str | None = None
+        if not context["data_quality"]["has_any_data"]:
+            # Nothing has ever been measured, so there is no environment to
+            # describe. Asking the model anyway invites it to narrate a risk
+            # score that only exists as a default, so the platform answers this
+            # one deterministically and says exactly why.
+            answer = self._fallback_answer(message, context)
+            fallback_used = True
+            grounding = "analysis_only"
+            warning = (
+                "No sensor readings have been received yet, so this answer comes from the "
+                "platform's own state check rather than the language model."
+            )
+            logger.info("chatbot_no_data_shortcut")
+        else:
+            answer = ""
         try:
+            if fallback_used:
+                raise OllamaUnavailable("skipped: no readings available")
             messages = self.build_messages(message, history, context)
             answer, model = await self.client.chat(messages)
             if not answer:
@@ -308,12 +326,16 @@ class ChatbotService:
                 raise OllamaUnavailable("The model returned an empty response.")
         except OllamaUnavailable as exc:
             # Never hide the degradation: the client is always told that a
-            # rule-based answer was substituted and why.
-            warning = f"{FALLBACK_WARNING} Reason: {exc}"
+            # rule-based answer was substituted and why. The no-data shortcut
+            # above already set its own, more accurate, explanation.
+            if warning is None:
+                warning = f"{FALLBACK_WARNING} Reason: {exc}"
+                logger.warning("chatbot_fallback_used", error=str(exc))
+            else:
+                logger.info("chatbot_answered_without_model")
             answer = self._fallback_answer(message, context)
             fallback_used = True
             grounding = "analysis_only"
-            logger.warning("chatbot_fallback_used", error=str(exc))
 
         latency_ms = round((time.perf_counter() - started) * 1000)
         citations = self._citations(message, context)
@@ -381,17 +403,27 @@ class ChatbotService:
         yield {
             "type": "meta",
             "session_id": session_id,
-            "detail": (
-                "Answering from "
-                + ("simulated" if context["data_source"] == "simulated" else context["data_source"])
-                + " data"
-            ),
+            "detail": "Answering from " + str(context["data_source"]) + " data",
         }
+        if not context["data_quality"]["has_any_data"]:
+            # Same reasoning as the non-streaming path: with no readings there is
+            # nothing for the model to interpret, so answer deterministically.
+            fallback = self._fallback_answer(message, context)
+            yield {
+                "type": "token",
+                "content": fallback,
+                "detail": "No sensor readings have been received yet.",
+            }
+            collected = [fallback]
         try:
+            if collected:
+                raise _ModelSkipped("no readings available")
             async for chunk, used_model in self.client.chat_stream(messages):
                 model = used_model
                 collected.append(chunk)
                 yield {"type": "token", "content": chunk, "model": used_model}
+        except _ModelSkipped:
+            logger.info("chatbot_stream_answered_without_model")
         except OllamaUnavailable as exc:
             logger.warning("chatbot_stream_fallback", error=str(exc))
             fallback = self._fallback_answer(message, context)
@@ -453,8 +485,7 @@ class ChatbotService:
         if not quality["has_any_data"]:
             return (
                 "No sensor data has been received yet, so there is nothing to analyse. "
-                "The dashboard will populate as soon as the Arduino node or the simulator "
-                "sends its first payload."
+                "The dashboard will populate as soon as the Arduino node sends its first payload."
             )
 
         header = ""
@@ -463,8 +494,6 @@ class ChatbotService:
                 f"Note: the latest reading is {humanize_seconds(quality['latest_reading_age_seconds'])} old, "
                 "so this assessment may not reflect current conditions.\n"
             )
-        elif context["data_source"] == "simulated":
-            header = "Note: values are simulated (SIMULATION MODE), not physical measurements.\n"
 
         if any(word in text for word in ("why", "risk", "dangerous", "unsafe", "safe")):
             factors = ", ".join(
@@ -678,8 +707,6 @@ class ChatbotService:
                 "Give me recommendations based on the current readings.",
             ]
         )
-        if overview.get("data_source") == "simulation":
-            questions.append("Is this data simulated or from real hardware?")
         if risk.get("level", 1) <= 2 and not overview.get("anomalies"):
             questions.insert(2, "Has the temperature been increasing today?")
         return questions[:6]

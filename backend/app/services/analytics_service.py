@@ -666,11 +666,10 @@ class AnalyticsService:
         notes: list[str] = []
         if latest_row is None:
             notes.append(
-                "No readings stored yet for this device. Start the simulator or flash the Arduino firmware."
+                "No readings stored yet for this device. Flash the Arduino firmware and check "
+                "that the node can reach this backend over Wi-Fi."
             )
             return notes
-        if latest_row.source == "simulation":
-            notes.append("Data source is the built-in simulator (SIMULATION MODE) - not physical hardware.")
         if len(window) < 10:
             notes.append(
                 f"Only {len(window)} readings in the selected window: statistics and predictions need more history."
@@ -919,7 +918,7 @@ class AnalyticsService:
                 "status": "offline",
                 "status_message": (
                     "Waiting for the Arduino UNO R4 Wi-Fi to send sensor data. "
-                    "This is expected until the firmware is flashed or the simulator is started."
+                    "This is expected until the firmware is flashed and the node reaches this backend."
                 ),
                 "last_seen_at": None,
                 "seconds_since_last_payload": None,

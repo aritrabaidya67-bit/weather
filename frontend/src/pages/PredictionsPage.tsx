@@ -15,7 +15,7 @@ const HORIZONS = [
 ];
 
 export default function PredictionsPage() {
-  const { overview, meta } = usePlatform();
+  const { overview } = usePlatform();
   const [horizon, setHorizon] = useState(HORIZONS[1]);
   const [prediction, setPrediction] = useState<PredictionResponse | null>(null);
   const [accuracy, setAccuracy] = useState<PredictionAccuracy | null>(null);
@@ -42,7 +42,6 @@ export default function PredictionsPage() {
     void api.predictionAccuracy().then(setAccuracy).catch(() => undefined);
   }, []);
 
-  const simulated = overview?.data_source === "simulation" || Boolean(meta?.simulation_mode);
   const riskForecast = prediction?.risk as RiskForecast | null | undefined;
 
   return (
@@ -54,7 +53,6 @@ export default function PredictionsPage() {
         action={
           <div className="flex flex-wrap items-center gap-2">
             {prediction?.data_sufficient ? <DataBadge predicted /> : null}
-            {simulated ? <DataBadge source="simulation" /> : null}
             <div className="flex gap-1">
               {HORIZONS.map((item) => (
                 <button

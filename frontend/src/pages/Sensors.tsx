@@ -11,7 +11,6 @@ import { classNames, formatSigned, unitSymbol } from "../utils/format";
 
 export default function Sensors() {
   const { overview, meta } = usePlatform();
-  const simulated = overview?.data_source === "simulation" || Boolean(meta?.simulation_mode);
   const catalog = meta?.channels ?? [];
 
   if (!overview?.has_data) {
@@ -20,7 +19,7 @@ export default function Sensors() {
         <EmptyState
           icon={<Activity size={20} />}
           title="No sensor data yet"
-          message="Sensor detail pages populate as soon as the Arduino node or the simulator sends its first payload."
+          message="Sensor detail pages populate as soon as the Arduino node sends its first payload."
         />
       </Card>
     );
@@ -32,7 +31,7 @@ export default function Sensors() {
         title="Sensors"
         subtitle="Six physical channels from the DHT12/AM2302, BMP280, MQ-135, rain sensor and LDR."
         icon={<Activity size={16} />}
-        action={simulated ? <DataBadge source="simulation" /> : <DataBadge source={overview.data_source} />}
+        action={<DataBadge source={overview.data_source} />}
       />
 
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
