@@ -1,207 +1,223 @@
 @import "tailwindcss";
 
-/* Class based dark mode: the theme toggle sets `.dark` on <html>. */
 @custom-variant dark (&:where(.dark, .dark *));
 
 @theme {
-  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
-    "Helvetica Neue", Arial, sans-serif;
-  --font-mono: ui-monospace, "SFMono-Regular", "Cascadia Code", Consolas, monospace;
+  --font-sans: "Inter", "Outfit", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: ui-monospace, "SFMono-Regular", Consolas, monospace;
 
-  --color-surface-950: oklch(0.13 0.02 258);
-  --color-surface-900: oklch(0.18 0.02 258);
-  --color-surface-800: oklch(0.24 0.02 258);
+  /* Refined Color Palette */
+  --color-surface-950: oklch(0.12 0.01 258);
+  --color-surface-900: oklch(0.16 0.02 258);
+  --color-surface-800: oklch(0.22 0.02 258);
+  --color-surface-50: oklch(0.98 0.005 258);
+  
   --color-accent-400: oklch(0.78 0.14 195);
   --color-accent-500: oklch(0.7 0.15 195);
+  --color-accent-600: oklch(0.6 0.16 195);
 
-  --radius-card: 1.25rem;
+  --radius-card: 1.5rem;
 
-  /* Motion: one shared vocabulary so every transition feels like one product. */
-  --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
-  --duration-fast: 140ms;
-  --duration-base: 240ms;
-  --duration-slow: 420ms;
+  /* Premium Motion */
+  --ease-out-soft: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out-soft: cubic-bezier(0.65, 0, 0.35, 1);
+  --ease-spring: cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  
+  --duration-fast: 150ms;
+  --duration-base: 250ms;
+  --duration-slow: 500ms;
 
-  --animate-pulse-ring: pulse-ring 2.4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-  --animate-float-in: float-in 0.4s var(--ease-out-soft) both;
-  --animate-shimmer: shimmer 2.2s linear infinite;
-  --animate-breathe: breathe 5.5s ease-in-out infinite;
-  --animate-drift: drift 14s linear infinite;
-  --animate-sheen: sheen 3.4s var(--ease-out-soft) infinite;
+  --animate-pulse-ring: pulse-ring 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  --animate-float-in: float-in 0.6s var(--ease-out-soft) both;
+  --animate-float-in-up: float-in-up 0.5s var(--ease-out-soft) both;
+  --animate-shimmer: shimmer 2s linear infinite;
+  --animate-breathe: breathe 6s ease-in-out infinite;
+  --animate-drift: drift 20s linear infinite;
+  --animate-sheen: sheen 4s var(--ease-out-soft) infinite;
+  --animate-glow: glow 4s ease-in-out infinite alternate;
 }
 
 @keyframes pulse-ring {
-  0% {
-    box-shadow: 0 0 0 0 currentColor;
-    opacity: 0.7;
-  }
-  70% {
-    box-shadow: 0 0 0 6px transparent;
-    opacity: 0;
-  }
-  100% {
-    box-shadow: 0 0 0 0 transparent;
-    opacity: 0;
-  }
+  0% { box-shadow: 0 0 0 0 currentColor; opacity: 0.6; }
+  70% { box-shadow: 0 0 0 12px transparent; opacity: 0; }
+  100% { box-shadow: 0 0 0 0 transparent; opacity: 0; }
 }
 
 @keyframes float-in {
-  from {
-    opacity: 0;
-    transform: translateY(6px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+  from { opacity: 0; transform: translateY(10px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes float-in-up {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 @keyframes shimmer {
-  0% {
-    background-position: -200% 0;
-  }
-  100% {
-    background-position: 200% 0;
-  }
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
 }
 
 @keyframes breathe {
-  0%,
-  100% {
-    transform: scale(1);
-    opacity: 0.85;
-  }
-  50% {
-    transform: scale(1.035);
-    opacity: 1;
-  }
+  0%, 100% { transform: scale(1); opacity: 0.8; }
+  50% { transform: scale(1.05); opacity: 1; }
 }
 
 @keyframes drift {
-  0% {
-    transform: rotate(0deg);
-  }
-  100% {
-    transform: rotate(360deg);
-  }
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
 }
 
 @keyframes sheen {
-  0%,
-  55% {
-    transform: translateX(-120%);
-  }
-  100% {
-    transform: translateX(120%);
-  }
+  0%, 40% { transform: translateX(-150%) skewX(-15deg); }
+  100% { transform: translateX(150%) skewX(-15deg); }
+}
+
+@keyframes glow {
+  from { filter: drop-shadow(0 0 4px currentColor); }
+  to { filter: drop-shadow(0 0 12px currentColor); }
 }
 
 @layer base {
   html {
     -webkit-text-size-adjust: 100%;
+    scroll-behavior: smooth;
   }
 
   body {
     @apply bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100;
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
 
   ::selection {
-    @apply bg-cyan-400/30;
+    @apply bg-cyan-500/20 text-cyan-900 dark:bg-cyan-400/30 dark:text-cyan-100;
   }
 
-  /* Numeric readouts line up when values change. */
   .tabular {
     font-variant-numeric: tabular-nums;
   }
 
-  /* Keyboard users get the same affordance mouse users get from hover. */
   :focus-visible {
     outline: 2px solid var(--color-accent-500);
-    outline-offset: 2px;
-    border-radius: 6px;
+    outline-offset: 4px;
+    border-radius: 8px;
   }
 
   * {
     scrollbar-width: thin;
-    scrollbar-color: rgba(100, 116, 139, 0.5) transparent;
+    scrollbar-color: rgba(100, 116, 139, 0.3) transparent;
   }
 
   *::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
+    width: 6px;
+    height: 6px;
   }
 
   *::-webkit-scrollbar-thumb {
-    background-color: rgba(100, 116, 139, 0.45);
+    background-color: rgba(100, 116, 139, 0.3);
     border-radius: 9999px;
+  }
+  
+  *::-webkit-scrollbar-thumb:hover {
+    background-color: rgba(100, 116, 139, 0.5);
   }
 
   @media (prefers-reduced-motion: reduce) {
-    *,
-    *::before,
-    *::after {
-      animation-duration: 0.001ms !important;
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
       animation-iteration-count: 1 !important;
-      transition-duration: 0.001ms !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
     }
   }
 }
 
 @utility panel {
-  @apply rounded-2xl border border-slate-200/80 bg-white/90 shadow-sm backdrop-blur
-    dark:border-slate-800/80 dark:bg-slate-900/60 dark:shadow-lg dark:shadow-slate-950/40;
+  @apply rounded-[1.25rem] border border-white/40 bg-white/60 shadow-[0_4px_24px_-8px_rgba(0,0,0,0.05)] backdrop-blur-xl
+    dark:border-white/5 dark:bg-surface-900/40 dark:shadow-[0_8px_32px_-12px_rgba(0,0,0,0.4)];
 }
 
-/* Hero surface: the one place that carries depth and a tinted glow. */
+/* Dark-mode overrides use a nested `&:where(.dark, .dark *)` selector rather
+ * than wrapping a second `@utility` in `@custom-variant`. `@custom-variant`
+ * defines a *variant*, so a `@utility` nested inside it is not compiled as a
+ * utility at all: Tailwind passed it through untouched, the minifier reported
+ * "Unknown at rule: @utility", and the dark values never applied. The selector
+ * below is plain CSS nesting, which is exactly what the `dark:` prefix expands
+ * to (see the `@custom-variant dark` declaration at the top of this file). */
 @utility panel-hero {
-  @apply relative overflow-hidden rounded-[1.5rem] border border-slate-200/70 bg-white/95
-    dark:border-slate-800/70 dark:bg-slate-900/70;
+  @apply relative overflow-hidden rounded-[2rem] border border-white/60 bg-white/70 backdrop-blur-2xl
+    dark:border-white/10 dark:bg-surface-900/60;
   box-shadow:
-    0 1px 2px rgba(15, 23, 42, 0.04),
-    0 18px 40px -24px rgba(15, 23, 42, 0.35);
+    0 1px 3px rgba(0, 0, 0, 0.02),
+    0 24px 60px -16px rgba(0, 0, 0, 0.08),
+    inset 0 1px 0 rgba(255,255,255,0.4);
+
+  &:where(.dark, .dark *) {
+    box-shadow:
+      0 1px 3px rgba(0, 0, 0, 0.2),
+      0 32px 80px -16px rgba(0, 0, 0, 0.6),
+      inset 0 1px 0 rgba(255,255,255,0.05);
+  }
 }
 
 @utility panel-muted {
-  @apply rounded-2xl border border-slate-200/70 bg-slate-50/80 dark:border-slate-800/70 dark:bg-slate-900/40;
+  @apply rounded-[1.25rem] border border-slate-200/50 bg-slate-100/50 dark:border-white/5 dark:bg-surface-800/30;
 }
 
-/* Tiles: interactive surfaces that lift on hover. */
 @utility tile {
-  @apply relative overflow-hidden rounded-2xl border border-slate-200/70 bg-white/90 p-3.5 transition-all
-    dark:border-slate-800/70 dark:bg-slate-900/50;
+  @apply relative overflow-hidden rounded-2xl border border-white/40 bg-white/80 p-4 transition-all
+    dark:border-white/5 dark:bg-surface-900/50;
+  transition-duration: var(--duration-base);
+  transition-timing-function: var(--ease-out-soft);
+  box-shadow: 0 2px 12px -4px rgba(0,0,0,0.03);
+}
+
+@utility tile-hover {
+  @apply hover:-translate-y-1 hover:border-white/80 hover:bg-white hover:shadow-[0_8px_30px_-8px_rgba(0,0,0,0.08)]
+    dark:hover:border-white/15 dark:hover:bg-surface-800/80 dark:hover:shadow-[0_8px_30px_-8px_rgba(0,0,0,0.3)];
+}
+
+@utility rail-item {
+  @apply flex items-center justify-center rounded-xl p-3 text-slate-500 transition-all hover:bg-slate-200/50 hover:text-slate-900 
+    dark:text-slate-400 dark:hover:bg-white/5 dark:hover:text-slate-100;
   transition-duration: var(--duration-base);
   transition-timing-function: var(--ease-out-soft);
 }
 
-@utility tile-hover {
-  @apply hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md
-    dark:hover:border-slate-700 dark:hover:bg-slate-900/80;
-}
-
-@utility rail-item {
-  @apply flex items-center gap-2.5 rounded-xl px-2.5 py-2 text-sm font-medium transition-colors;
-  transition-duration: var(--duration-fast);
+@utility rail-item-active {
+  @apply bg-slate-900 text-white shadow-md dark:bg-cyan-500/20 dark:text-cyan-300 dark:shadow-none;
 }
 
 @utility skeleton {
   background: linear-gradient(
     90deg,
-    rgba(148, 163, 184, 0.12) 25%,
-    rgba(148, 163, 184, 0.28) 37%,
-    rgba(148, 163, 184, 0.12) 63%
+    rgba(148, 163, 184, 0.1) 25%,
+    rgba(148, 163, 184, 0.25) 37%,
+    rgba(148, 163, 184, 0.1) 63%
   );
   background-size: 200% 100%;
   animation: var(--animate-shimmer);
-  @apply rounded-md;
+  @apply rounded-xl;
 }
 
 @utility hairline {
-  @apply border-slate-200/80 dark:border-slate-800/80;
+  @apply border-slate-200/60 dark:border-white/5;
 }
 
-/* A soft tinted wash used behind the hero status orb. */
+@utility glass-overlay {
+  @apply absolute inset-0 bg-gradient-to-br from-white/40 to-white/0 opacity-0 transition-opacity duration-500
+    dark:from-white/10 dark:to-white/0;
+}
+
 @utility aura {
-  filter: blur(28px);
-  opacity: 0.55;
+  filter: blur(40px);
+  opacity: 0.6;
+  mix-blend-mode: multiply;
+
+  &:where(.dark, .dark *) {
+    mix-blend-mode: screen;
+    opacity: 0.4;
+  }
 }

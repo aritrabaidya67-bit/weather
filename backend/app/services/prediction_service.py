@@ -192,7 +192,16 @@ class PredictionService:
     def _extract_series(
         self, rows: Sequence[SensorReading], metric: str
     ) -> list[tuple[float, float, datetime]]:
-        """Return (minutes_relative, value, timestamp) with the last sample at 0."""
+        """Return (minutes_relative, value, timestamp) with the last sample at 0.
+
+        An empty series means "this metric has no stored value at all". A series
+        with a single point is returned as-is: it cannot support a fit, but it is
+        a real observation, and reporting it lets callers distinguish "one
+        reading exists" from "no readings exist" and state the current value.
+        Collapsing both to an empty list would make `samples_used` read 0 when a
+        reading is plainly there, which is exactly the kind of misleading number
+        this service is supposed to avoid.
+        """
         raw: list[tuple[float, float, datetime]] = []
         for row in rows:
             value = getattr(row, metric, None)
@@ -202,7 +211,7 @@ class PredictionService:
             if received is None:
                 continue
             raw.append((received.timestamp(), float(value), received))
-        if len(raw) < 2:
+        if not raw:
             return []
         last_timestamp = raw[-1][0]
         return [((ts - last_timestamp) / 60.0, value, stamp) for ts, value, stamp in raw]
@@ -244,11 +253,11 @@ class PredictionService:
                 spec.interpret(series[-1][1])[0] if series else None
             ),
         }
-        if metric == "light_pct":
-            diurnal = self._diurnal_prediction(spec, series, horizon_minutes, window_minutes)
-            if diurnal is not None:
-                return {**base, **diurnal}
-
+        # The minimum-history rule is enforced BEFORE any method is tried, so no
+        # method can bypass it. The diurnal prior used to run first and would
+        # happily emit a confident-looking illumination forecast from a single
+        # reading - a fabricated prediction, which is exactly what must not
+        # happen. A method may only add information, never a prerequisite.
         if len(series) < self.settings.prediction.min_samples_linear:
             return {
                 **base,
@@ -269,6 +278,11 @@ class PredictionService:
                 "features": ["recent sensor history"],
                 "warnings": ["Not enough history for a statistical forecast."],
             }
+
+        if metric == "light_pct":
+            diurnal = self._diurnal_prediction(spec, series, horizon_minutes, window_minutes)
+            if diurnal is not None:
+                return {**base, **diurnal}
 
         xs = [point[0] for point in series]
         ys = [point[1] for point in series]

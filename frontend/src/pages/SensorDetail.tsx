@@ -1,23 +1,20 @@
-/** Sensor detail: live value, chart with ranges, statistics, anomalies and interpretation. */
+/**
+ * Sensor detail: A deep dive into a specific metric.
+ * Beautiful large chart, clear statistical breakdowns, and baseline context.
+ */
 
-import { Activity, ArrowLeft, TrendingUp } from "lucide-react";
+
+import { Activity, ArrowLeft, TrendingUp, Info } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { TimeSeriesChart } from "../components/charts/TimeSeriesChart";
 import { AnomalyList } from "../components/dashboard/Panels";
-import { Card, CardSkeleton, Chip, DataBadge, EmptyState, ErrorState, InlineNote, SectionHeader, StatusDot } from "../components/common/Ui";
+import { CardSkeleton, Chip, DataBadge, EmptyState, ErrorState, SectionHeaderPill, StatusDot } from "../components/common/Ui";
+import { SegmentedToggle, TREND_RANGES } from "../components/dashboard/TrendPanel";
 import { api, ApiError } from "../services/api";
 import { usePlatform } from "../state/PlatformContext";
 import type { HistoryResponse } from "../types";
-import { classNames, formatSigned, relativeTime, unitSymbol } from "../utils/format";
-
-const RANGES = [
-  { label: "15 min", hours: 0.25, bucket: "15m" },
-  { label: "1 h", hours: 1, bucket: "1h" },
-  { label: "6 h", hours: 6, bucket: "6h" },
-  { label: "24 h", hours: 24, bucket: "24h" },
-  { label: "7 d", hours: 168, bucket: "7d" },
-];
+import { classNames, formatSigned, unitSymbol } from "../utils/format";
 
 export default function SensorDetail() {
   const { channelId } = useParams<{ channelId: string }>();
@@ -25,7 +22,10 @@ export default function SensorDetail() {
   const channel = overview?.channels.find((item) => item.channel === channelId);
   const channelSpec = meta?.channels.find((item) => item.key === channelId);
   const sensorSpec = meta?.sensors.find((item) => item.key === channelSpec?.primary);
-  const [range, setRange] = useState(RANGES[2]);
+  
+  const [rangeLabel, setRangeLabel] = useState("24h");
+  const range = TREND_RANGES.find(r => r.label === rangeLabel) ?? TREND_RANGES[3];
+  
   const [history, setHistory] = useState<HistoryResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [baseline, setBaseline] = useState<{ mean: number | null; sigma: number | null; samples: number } | null>(null);
@@ -36,237 +36,194 @@ export default function SensorDetail() {
     if (!channelSpec) return;
     let cancelled = false;
     setError(null);
-    void api
-      .history({ hours: range.hours, bucket: range.bucket, metrics: channelSpec.primary, limit: 500 })
-      .then((response) => {
-        if (!cancelled) setHistory(response);
-      })
-      .catch((caught) => {
-        if (!cancelled) setError(caught instanceof ApiError ? caught.detail : "History unavailable.");
-      });
-    void api
-      .baseline()
-      .then((response) => {
-        if (!cancelled) setBaseline(response.metrics[channelSpec.primary] ?? null);
-      })
+    void api.history({ hours: range.hours, bucket: range.bucket, metrics: channelSpec.primary, limit: 500 })
+      .then((res) => { if (!cancelled) setHistory(res); })
+      .catch((err) => { if (!cancelled) setError(err instanceof ApiError ? err.detail : "History unavailable."); });
+    
+    void api.baseline()
+      .then((res) => { if (!cancelled) setBaseline(res.metrics[channelSpec.primary] ?? null); })
       .catch(() => undefined);
-    return () => {
-      cancelled = true;
-    };
+      
+    return () => { cancelled = true; };
   }, [channelSpec, range, overview?.latest?.received_at]);
 
   const series = history?.series?.[metricKey];
-  const anomalies = useMemo(
-    () => (overview?.anomalies ?? []).filter((item) => item.sensor === metricKey),
-    [overview?.anomalies, metricKey],
-  );
+  const anomalies = useMemo(() => (overview?.anomalies ?? []).filter((item) => item.sensor === metricKey), [overview?.anomalies, metricKey]);
 
   if (!channelSpec) {
     return (
-      <Card>
-        <EmptyState
-          icon={<Activity size={20} />}
-          title="Unknown sensor"
-          message={`There is no channel named "${channelId}". Known channels: temperature, humidity, pressure, air_quality, light, rain.`}
-        />
-      </Card>
+      <div className="panel p-12 text-center min-h-[50vh] flex flex-col justify-center items-center">
+        <Activity size={32} className="text-slate-400 mb-4" />
+        <EmptyState title="Unknown Sensor" message={`No channel named "${channelId}".`} />
+      </div>
     );
   }
 
   if (!overview?.has_data || !channel) {
     return (
-      <Card>
-        <EmptyState
-          icon={<Activity size={20} />}
-          title={`No data for ${channelSpec.label}`}
-          message="Waiting for the Arduino UNO R4 Wi-Fi to send sensor data. Values, statistics and anomaly history appear once readings arrive."
-        />
-      </Card>
+      <div className="panel p-12 text-center min-h-[50vh] flex flex-col justify-center items-center">
+        <Activity size={32} className="text-slate-400 mb-4" />
+        <EmptyState title={`Waiting for ${channelSpec.label}`} message="Data will appear once readings arrive from the device." />
+      </div>
     );
   }
 
   const bands = sensorSpec?.bands ?? [];
   const unit = unitSymbol(channel.unit);
+  const color = channel.color || "#38bdf8";
 
   return (
-    <div className="space-y-5">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+    <div className="space-y-6 animate-float-in">
+      
+      {/* Header */}
+      <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
         <div>
-          <Link to="/sensors" className="inline-flex items-center gap-1 text-xs text-slate-500 hover:underline dark:text-slate-400">
-            <ArrowLeft size={12} /> all sensors
+          <Link to="/sensors" className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-widest text-slate-500 hover:text-cyan-500 transition-colors mb-3">
+            <ArrowLeft size={14} /> Back to Dashboard
           </Link>
-          <h1 className="mt-1 text-xl font-semibold text-slate-900 dark:text-slate-100">{channelSpec.label}</h1>
-          <p className="text-sm text-slate-500 dark:text-slate-400">
-            {channelSpec.sensor} · metric <code className="text-[11px]">{channelSpec.primary}</code>
+          <div className="flex items-center gap-3">
+            <h1 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-white">{channelSpec.label}</h1>
+            <Chip severity={channel.severity}>
+              <StatusDot severity={channel.severity} pulse={channel.severity === 'critical'} />
+              {channel.status}
+            </Chip>
+          </div>
+          <p className="text-sm font-medium text-slate-500 dark:text-slate-400 mt-1 uppercase tracking-widest">
+            {channelSpec.sensor}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
           <DataBadge source={overview.data_source} />
-          <Chip severity={channel.severity}>
-            <StatusDot severity={channel.severity} />
-            {channel.status}
-          </Chip>
+          <SegmentedToggle
+            options={TREND_RANGES.map((item) => ({ key: item.label, label: item.label }))}
+            value={rangeLabel}
+            onChange={setRangeLabel}
+            compact
+          />
         </div>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
-        <Card>
-          <SectionHeader
-            title="Live value"
-            subtitle={`Interpretation bands from the backend registry · updated ${relativeTime(overview.latest.received_at)}`}
-            action={
-              <div className="flex flex-wrap gap-1">
-                {RANGES.map((item) => (
-                  <button
-                    key={item.label}
-                    type="button"
-                    onClick={() => setRange(item)}
-                    className={classNames(
-                      "rounded-lg px-2.5 py-1 text-[11px] font-medium transition",
-                      range.label === item.label
-                        ? "bg-slate-900 text-white dark:bg-cyan-500/20 dark:text-cyan-200"
-                        : "text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800",
-                    )}
-                  >
-                    {item.label}
-                  </button>
-                ))}
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+        
+        {/* Main Chart Area */}
+        <div className="space-y-6">
+          <section className="panel p-6 sm:p-8 relative overflow-hidden">
+            <div className="absolute top-0 right-0 p-8 opacity-5 pointer-events-none">
+               <Activity size={120} style={{ color }} />
+            </div>
+
+            <div className="flex flex-wrap items-end gap-8 mb-8 relative z-10">
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1">Live Reading</p>
+                <div className="flex items-baseline gap-2">
+                  <span className="tabular text-6xl font-bold tracking-tighter text-slate-900 dark:text-white" style={{ color }}>
+                    {channel.value !== null ? channel.value.toFixed(channel.decimals) : "—"}
+                  </span>
+                  <span className="text-2xl font-medium text-slate-400">{unit}</span>
+                </div>
+                <div className="mt-2 flex items-center gap-2 text-sm font-medium text-slate-500 dark:text-slate-400">
+                  <TrendingUp size={16} />
+                  {channel.trend} ({formatSigned(channel.change, channel.decimals, channel.unit)})
+                </div>
               </div>
-            }
-          />
-          <div className="flex flex-wrap items-end gap-6">
-            <div>
-              <div className="tabular text-4xl font-semibold tracking-tight text-slate-900 dark:text-slate-50">
-                {channel.value !== null ? channel.value.toFixed(channel.decimals) : "—"}
-                <span className="ml-1.5 text-sm font-normal text-slate-400">{unit}</span>
-              </div>
-              <div className="mt-1 flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
-                <TrendingUp size={12} />
-                {channel.trend} · {formatSigned(channel.change, channel.decimals, channel.unit)} in this window
-                {channel.rate_of_change_per_hour !== null ? ` · ${channel.rate_of_change_per_hour.toFixed(2)} ${unit}/h` : ""}
+
+              <div className="flex-1 grid grid-cols-2 sm:grid-cols-4 gap-4 bg-slate-50/50 dark:bg-surface-900/50 p-4 rounded-2xl border border-slate-200/50 dark:border-white/5">
+                <Stat label="Min" value={channel.stats.min} decimals={channel.decimals} unit={unit} />
+                <Stat label="Mean" value={channel.stats.mean} decimals={channel.decimals} unit={unit} />
+                <Stat label="Max" value={channel.stats.max} decimals={channel.decimals} unit={unit} />
+                <Stat label="Std Dev" value={channel.stats.stdev} decimals={channel.decimals} unit={unit} />
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-xs sm:grid-cols-4">
-              <Stat label="min" value={channel.stats.min} decimals={channel.decimals} unit={unit} />
-              <Stat label="mean" value={channel.stats.mean} decimals={channel.decimals} unit={unit} />
-              <Stat label="median" value={channel.stats.median} decimals={channel.decimals} unit={unit} />
-              <Stat label="max" value={channel.stats.max} decimals={channel.decimals} unit={unit} />
-              <Stat label="std dev" value={channel.stats.stdev} decimals={channel.decimals} unit={unit} />
-              <Stat label="p95" value={channel.stats.p95} decimals={channel.decimals} unit={unit} />
-              <Stat label="samples" value={channel.sample_count} decimals={0} unit="" />
-              <Stat label="sensor age" value={null} decimals={0} unit="" extra={relativeTime(overview.latest.received_at)} />
+
+            <div className="h-[340px] relative z-10">
+              {error ? (
+                <ErrorState title="Chart unavailable" message={error} />
+              ) : series ? (
+                <TimeSeriesChart series={series} color={color} rangeHours={range.hours} height={340} decimals={channel.decimals} />
+              ) : (
+                <CardSkeleton className="h-[340px]" />
+              )}
             </div>
-          </div>
-
-          <div className="mt-4">
-            {error ? (
-              <ErrorState title="Chart unavailable" message={error} />
-            ) : series ? (
-              <TimeSeriesChart
-                series={series}
-                color={channel.color}
-                rangeHours={range.hours}
-                height={300}
-                decimals={channel.decimals}
-              />
-            ) : (
-              <CardSkeleton />
-            )}
-          </div>
-          {history && !history.sufficient_data ? (
-            <InlineNote severity="watch" className="mt-3">
-              {history.notes[0] ?? "Insufficient history in this range for trend statistics."}
-            </InlineNote>
-          ) : null}
-        </Card>
-
-        <div className="space-y-4">
-          <Card>
-            <SectionHeader title="Interpretation" subtitle="What the current value means" className="mb-2" />
-            <p className="text-sm text-slate-600 dark:text-slate-300">{sensorSpec?.description}</p>
-            <ul className="mt-3 space-y-1.5">
-              {bands.map((band) => {
-                const active =
-                  channel.value !== null &&
-                  channel.value <= band.until &&
-                  (bands.find((item) => channel.value! <= item.until)?.until === band.until);
-                return (
-                  <li
-                    key={`${band.until}-${band.label}`}
-                    className={classNames(
-                      "flex items-center justify-between rounded-lg px-2.5 py-1.5 text-xs",
-                      active ? "bg-cyan-500/10 font-medium text-cyan-700 dark:text-cyan-300" : "text-slate-500 dark:text-slate-400",
-                    )}
-                  >
-                    <span>≤ {band.until} {unit}</span>
-                    <span>{band.label}</span>
-                  </li>
-                );
-              })}
-            </ul>
-            {sensorSpec?.calibration_notes ? (
-              <InlineNote severity="info" className="mt-3">
-                {sensorSpec.calibration_notes}
-              </InlineNote>
-            ) : null}
-          </Card>
-
-          <Card>
-            <SectionHeader title="Recent baseline" subtitle="Rolling window used by anomaly detection" className="mb-2" />
-            {baseline && baseline.samples > 0 ? (
-              <dl className="grid grid-cols-3 gap-3 text-xs">
-                <div>
-                  <dt className="text-slate-400">mean</dt>
-                  <dd className="tabular font-medium text-slate-700 dark:text-slate-200">
-                    {baseline.mean?.toFixed(channel.decimals) ?? "—"}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-slate-400">robust σ</dt>
-                  <dd className="tabular font-medium text-slate-700 dark:text-slate-200">
-                    {baseline.sigma?.toFixed(2) ?? "—"}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-slate-400">samples</dt>
-                  <dd className="tabular font-medium text-slate-700 dark:text-slate-200">{baseline.samples}</dd>
-                </div>
-              </dl>
-            ) : (
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                The anomaly baseline needs at least 12 samples for this sensor before it can report deviations.
+            
+            {history && !history.sufficient_data && (
+              <p className="text-xs text-amber-500 font-medium text-center mt-4">
+                {history.notes[0] ?? "Gathering more data for trend statistics..."}
               </p>
             )}
-          </Card>
+          </section>
 
-          <Card>
-            <SectionHeader title="Anomalies" subtitle="Deviations from the recent baseline" className="mb-2" />
+          {/* Anomalies */}
+          <section className="panel p-6">
+            <SectionHeaderPill icon={<Activity size={16} />} title="Detected Anomalies" className="mb-4" />
             <AnomalyList anomalies={anomalies} />
-          </Card>
+          </section>
+        </div>
+
+        {/* Sidebar */}
+        <div className="space-y-6">
+          <section className="panel p-6">
+            <SectionHeaderPill icon={<Info size={16} />} title="Interpretation" className="mb-4" />
+            <p className="text-sm text-slate-600 dark:text-slate-300 leading-relaxed mb-6">{sensorSpec?.description}</p>
+            
+            <div className="space-y-2">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2">Threshold Bands</p>
+              <ul className="space-y-1.5">
+                {bands.map((band) => {
+                  const active = channel.value !== null && channel.value <= band.until && (bands.find(i => channel.value! <= i.until)?.until === band.until);
+                  return (
+                    <li key={`${band.until}-${band.label}`} className={classNames(
+                      "flex items-center justify-between rounded-xl px-3 py-2 text-xs font-medium transition-colors",
+                      active ? "bg-cyan-500/10 text-cyan-700 dark:text-cyan-400 border border-cyan-500/20" : "text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-surface-900/40"
+                    )}>
+                      <span>≤ {band.until} {unit}</span>
+                      <span>{band.label}</span>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+            
+            {sensorSpec?.calibration_notes && (
+              <div className="mt-6 p-4 rounded-xl bg-sky-50 dark:bg-sky-500/10 border border-sky-100 dark:border-sky-500/20">
+                <p className="text-xs font-medium text-sky-700 dark:text-sky-300">{sensorSpec.calibration_notes}</p>
+              </div>
+            )}
+          </section>
+
+          <section className="panel p-6">
+            <SectionHeaderPill icon={<TrendingUp size={16} />} title="Rolling Baseline" className="mb-4" />
+            {baseline && baseline.samples > 0 ? (
+              <div className="grid grid-cols-2 gap-4">
+                <div className="p-4 rounded-xl bg-slate-50 dark:bg-surface-900/40 border border-slate-100 dark:border-white/5">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1">Mean</p>
+                  <p className="text-xl font-bold tabular text-slate-700 dark:text-slate-200">{baseline.mean?.toFixed(channel.decimals) ?? "—"}</p>
+                </div>
+                <div className="p-4 rounded-xl bg-slate-50 dark:bg-surface-900/40 border border-slate-100 dark:border-white/5">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1">Robust σ</p>
+                  <p className="text-xl font-bold tabular text-slate-700 dark:text-slate-200">{baseline.sigma?.toFixed(2) ?? "—"}</p>
+                </div>
+                <div className="col-span-2 p-3 text-center rounded-xl bg-slate-50/50 dark:bg-black/20">
+                  <p className="text-xs font-medium text-slate-500">Based on <span className="font-bold text-slate-700 dark:text-slate-300">{baseline.samples}</span> recent samples</p>
+                </div>
+              </div>
+            ) : (
+              <p className="text-xs text-center text-slate-500 dark:text-slate-400 py-6 border-dashed border-2 rounded-xl border-slate-200 dark:border-white/10">
+                Waiting for at least 12 samples to establish an anomaly baseline.
+              </p>
+            )}
+          </section>
         </div>
       </div>
     </div>
   );
 }
 
-function Stat({
-  label,
-  value,
-  decimals,
-  unit,
-  extra,
-}: {
-  label: string;
-  value: number | null;
-  decimals: number;
-  unit: string;
-  extra?: string;
-}) {
+function Stat({ label, value, decimals, unit }: { label: string; value: number | null; decimals: number; unit: string }) {
   return (
     <div>
-      <div className="text-[10px] uppercase tracking-wide text-slate-400">{label}</div>
-      <div className="tabular font-medium text-slate-700 dark:text-slate-200">
-        {extra ?? (value !== null ? `${value.toFixed(decimals)} ${unit}`.trim() : "—")}
+      <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1">{label}</div>
+      <div className="tabular text-base font-bold text-slate-800 dark:text-slate-200">
+        {value !== null ? `${value.toFixed(decimals)} ${unit}`.trim() : "—"}
       </div>
     </div>
   );

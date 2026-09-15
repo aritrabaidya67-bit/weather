@@ -1,269 +1,202 @@
-/** Risk analysis: score, contributors, trend, anomalies, alerts and the model explanation. */
+/**
+ * Risk analysis: visual breakdown of the score, contributors, and the model.
+ * Highly visual and progressive.
+ */
 
-import { AlertTriangle, Gauge, ListChecks, ShieldAlert, Sliders } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import { Gauge, ShieldAlert, Sliders, ChevronDown } from "lucide-react";
 import { useEffect, useState } from "react";
-import { RiskGauge, RiskTrendChart } from "../components/charts/RiskGauge";
-import { AlertFeed, AnomalyList, RiskBreakdown } from "../components/dashboard/Panels";
-import { Card, CardSkeleton, Chip, DataBadge, EmptyState, InlineNote, SectionHeader } from "../components/common/Ui";
+import { RiskTrendChart } from "../components/charts/RiskGauge";
+import { EmptyState, SectionHeaderPill } from "../components/common/Ui";
+import { AnimatedNumber } from "../components/common/AnimatedNumber";
 import { api } from "../services/api";
 import { usePlatform } from "../state/PlatformContext";
-import type { RiskModel, SensorSpec } from "../types";
-import { classNames, riskColor, unitSymbol } from "../utils/format";
-
-const LEVEL_BLUZ = ["silent", "silent", "occasional beep", "repeated warning pattern", "critical alarm pattern"];
-
-/**
- * Rule reasons are templates on the backend: placeholders such as
- * "{heat_index_c:.1f}" are only substituted when the rule actually fires, so a
- * static model description must never be rendered verbatim.
- */
-function cleanReason(reason: string | null | undefined): string | null {
-  if (!reason) return null;
-  return /\{[^}]*\}/.test(reason) ? null : reason;
-}
-
-/** "Temperature ≥ 30 °C and Relative Humidity ≥ 60 %RH", built from the real config. */
-function describeConditions(
-  conditions: Record<string, { min?: number | null; max?: number | null }> | null | undefined,
-  sensors: SensorSpec[] | undefined,
-): string {
-  if (!conditions) return "";
-  const parts: string[] = [];
-  for (const [key, bounds] of Object.entries(conditions)) {
-    const spec = sensors?.find((item) => item.key === key);
-    const label = spec?.label ?? key.replace(/_/g, " ");
-    const unit = unitSymbol(spec?.unit);
-    const min = typeof bounds?.min === "number" ? bounds.min : null;
-    const max = typeof bounds?.max === "number" ? bounds.max : null;
-    if (min === null && max === null) continue;
-    const show = (value: number) =>
-      `${Number.isInteger(value) ? value : value.toFixed(1)}${unit ? ` ${unit}` : ""}`;
-    const clause =
-      min !== null && max !== null
-        ? `between ${show(min)} and ${show(max)}`
-        : min !== null
-          ? `≥ ${show(min)}`
-          : `≤ ${show(max as number)}`;
-    parts.push(`${label} ${clause}`);
-  }
-  return parts.join(" and ");
-}
+import type { RiskModel, RiskContribution } from "../types";
+import { riskColor } from "../utils/format";
 
 export default function RiskPage() {
-  const { overview, meta } = usePlatform();
+  const { overview } = usePlatform();
   const [model, setModel] = useState<RiskModel | null>(null);
   const [trend, setTrend] = useState<{ timestamp: string; score: number; level: number }[]>([]);
-  const [trendDirection, setTrendDirection] = useState<string>("unknown");
-  const [trendChange, setTrendChange] = useState<number | null>(null);
+  const [showModel, setShowModel] = useState(false);
 
   useEffect(() => {
     void api.riskModel().then(setModel).catch(() => setModel(null));
-    void api
-      .riskAnalysis(undefined, 6)
-      .then((response) => {
-        setTrend(response.trend ?? []);
-        setTrendDirection(response.trend_direction);
-        setTrendChange(response.trend_change);
-      })
-      .catch(() => undefined);
+    void api.riskAnalysis(undefined, 6).then((res) => setTrend(res.trend ?? [])).catch(() => undefined);
   }, [overview?.latest?.received_at]);
 
   if (!overview?.has_data) {
     return (
-      <Card>
+      <div className="panel flex flex-col items-center justify-center p-12 text-center min-h-[60vh]">
+        <div className="rounded-full bg-slate-100 p-4 dark:bg-surface-800 mb-6 text-slate-400">
+          <ShieldAlert size={32} />
+        </div>
         <EmptyState
-          icon={<ShieldAlert size={20} />}
           title="No risk assessment yet"
-          message="Risk is calculated from real readings. Once the Arduino node sends data, this page explains exactly which factors drive the score."
+          message="Risk is calculated from real readings. Once the Arduino node sends data, this page will explain exactly which factors drive the score."
         />
-      </Card>
+      </div>
     );
   }
 
   const risk = overview.risk;
+  const color = riskColor(risk.level);
 
   return (
-    <div className="space-y-5">
-      <SectionHeader
-        title="Risk analysis"
-        subtitle="An auditable score: every factor's contribution is shown, and the model is fully configurable."
-        icon={<ShieldAlert size={16} />}
-        action={<DataBadge source={overview.data_source} />}
-      />
-
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)]">
-        <Card className="flex flex-col items-center justify-center gap-4">
-          <RiskGauge score={risk.score} level={risk.level} label={risk.label} confidence={risk.confidence} size={220} />
-          <div className="text-center">
-            <p className="text-sm font-medium text-slate-800 dark:text-slate-100">{risk.description}</p>
-            <div className="mt-2 flex flex-wrap items-center justify-center gap-2">
-              <Chip severity={risk.level >= 4 ? "critical" : risk.level === 3 ? "watch" : "good"}>
-                level {risk.level} · {risk.code.replace("_", " ")}
-              </Chip>
-              <Chip severity={trendDirection === "rising" ? "warning" : trendDirection === "falling" ? "good" : "info"}>
-                trend {trendDirection}
-                {trendChange !== null ? ` (${trendChange > 0 ? "+" : ""}${trendChange.toFixed(1)})` : ""}
-              </Chip>
-            </div>
-            <p className="mt-3 text-[11px] text-slate-500 dark:text-slate-400">
-              Physical indicators: LED {Math.round(risk.level)} of 5 · buzzer {LEVEL_BLUZ[Math.min(4, Math.round(risk.level) - 1)]}
-            </p>
-          </div>
-        </Card>
-
-        <Card>
-          <SectionHeader title="Risk trend" subtitle="Stored score history (last 6 hours of readings)" icon={<Gauge size={16} />} className="mb-3" />
-          <RiskTrendChart data={trend} rangeHours={6} height={220} />
-        </Card>
-      </div>
-
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
-        <Card>
-          <SectionHeader title="Why this score" subtitle="Additive factor contributions" icon={<ListChecks size={16} />} className="mb-3" />
-          <RiskBreakdown risk={risk} />
-        </Card>
-        <div className="space-y-4">
-          <Card>
-            <SectionHeader title="Anomalies feeding the score" className="mb-3" />
-            <AnomalyList anomalies={overview.anomalies} />
-          </Card>
-          <Card>
-            <SectionHeader title="Active alerts" className="mb-3" />
-            <AlertFeed alerts={overview.alerts} />
-          </Card>
-        </div>
-      </div>
-
-      <Card>
-        <SectionHeader
-          title="Risk model"
-          subtitle="Weights, bands and cross-sensor rules - replaceable through RISK_CONFIG_FILE"
-          icon={<Sliders size={16} />}
-          className="mb-3"
+    <div className="space-y-6 animate-float-in">
+      
+      {/* Visual Hero */}
+      <section className="panel-hero p-8 sm:p-12 text-center relative overflow-hidden flex flex-col items-center justify-center min-h-[400px]">
+        {/* Animated Background Aura */}
+        <motion.div 
+          className="absolute inset-0 opacity-20 pointer-events-none mix-blend-screen"
+          style={{ background: `radial-gradient(circle at center, ${color}, transparent 60%)` }}
+          animate={{ scale: [1, 1.1, 1], opacity: [0.15, 0.25, 0.15] }}
+          transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
         />
-        {model ? (
-          <div className="space-y-5">
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-              {(model.levels ?? []).map((level) => (
-                <div
-                  key={level.level}
-                  className={classNames(
-                    "rounded-2xl border p-3",
-                    risk.level === level.level ? "border-cyan-500/50 bg-cyan-500/5" : "border-slate-200/80 dark:border-slate-800/80",
-                  )}
-                >
-                  <div className="flex items-center gap-2">
-                    <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: level.color }} />
-                    <span className="text-xs font-semibold text-slate-700 dark:text-slate-200">
-                      L{level.level} {level.label}
-                    </span>
-                  </div>
-                  <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
-                    {level.min_score}–{level.max_score} · LED {level.led_index}
-                  </p>
-                  <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">{level.description}</p>
-                  <p className="mt-1 text-[10px] uppercase tracking-wide text-slate-400">
-                    buzzer: {level.buzzer_pattern.replace(/_/g, " ")}
-                  </p>
-                </div>
-              ))}
-            </div>
 
-            <div>
-              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Factor weights</p>
-              <div className="space-y-2">
-                {(model.factors ?? []).map((factor) => {
-                  const contribution = risk.contributions.find((item) => item.key === factor.key);
-                  return (
-                    <div key={factor.key} className="space-y-1">
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="font-medium text-slate-700 dark:text-slate-200">
-                          {factor.label}
-                          {factor.note ? (
-                            <span className="ml-2 font-normal text-slate-400">{factor.note}</span>
-                          ) : null}
-                        </span>
-                        <span className="tabular text-slate-500 dark:text-slate-400">
-                          weight {factor.weight} · now +{(contribution?.points ?? 0).toFixed(1)}
-                        </span>
-                      </div>
-                      <div className="h-2 overflow-hidden rounded-full bg-slate-200/70 dark:bg-slate-800">
-                        <div
-                          className="h-full rounded-full transition-all"
-                          style={{
-                            width: `${Math.min(100, ((contribution?.points ?? 0) / factor.weight) * 100)}%`,
-                            backgroundColor: riskColor(risk.level),
-                          }}
-                        />
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div>
-              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
-                Cross-sensor combination rules
-              </p>
-              <ul className="space-y-1.5">
-                {(model.combination_rules ?? []).map((rule) => {
-                  const trigger = describeConditions(rule.conditions, meta?.sensors);
-                  const reason = cleanReason(rule.reason);
-                  return (
-                    <li
-                      key={rule.id}
-                      title={reason ?? undefined}
-                      className="rounded-xl bg-slate-50/70 px-3 py-2 text-xs text-slate-600 dark:bg-slate-900/40 dark:text-slate-300"
-                    >
-                      <span className="font-medium text-slate-700 dark:text-slate-200">{rule.label}</span> (+{rule.points}{" "}
-                      points)
-                      <span className="ml-1 text-slate-500 dark:text-slate-400">
-                        — {trigger || reason || "configured on the backend"}
-                        {trigger && reason ? ` · ${reason}` : ""}
-                      </span>
-                    </li>
-                  );
-                })}
-              </ul>
-            </div>
-
-            <InlineNote severity="info">{(model.notes ?? []).join(" ")}</InlineNote>
+        <div className="relative z-10">
+          <p className="text-sm font-bold tracking-widest uppercase mb-4 opacity-80" style={{ color }}>
+            Current Risk Score
+          </p>
+          <div className="flex items-baseline justify-center gap-2 mb-2">
+            <AnimatedNumber
+              value={risk.score}
+              decimals={0}
+              className="text-8xl sm:text-[9rem] font-bold tracking-tighter text-slate-900 dark:text-white leading-none"
+            />
+            <span className="text-2xl font-medium text-slate-400">/ 100</span>
           </div>
-        ) : (
-          <CardSkeleton />
-        )}
-      </Card>
-
-      <Card>
-        <SectionHeader title="Alert rules behind these alerts" icon={<AlertTriangle size={16} />} className="mb-3" />
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[640px] text-left text-sm">
-            <thead>
-              <tr className="text-[11px] uppercase tracking-wide text-slate-400">
-                <th className="pb-2 font-medium">Rule</th>
-                <th className="pb-2 font-medium">Severity</th>
-                <th className="pb-2 font-medium">Condition</th>
-                <th className="pb-2 font-medium">Action</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-200/70 dark:divide-slate-800/70">
-              {(meta?.alert_rules ?? []).map((rule) => (
-                <tr key={rule.id}>
-                  <td className="py-2 pr-3 font-medium text-slate-700 dark:text-slate-200">{rule.title}</td>
-                  <td className="py-2 pr-3">
-                    <Chip severity={rule.severity === "critical" ? "critical" : rule.severity === "warning" ? "warning" : "info"}>
-                      {rule.severity}
-                    </Chip>
-                  </td>
-                  <td className="py-2 pr-3 text-[11px] text-slate-500 dark:text-slate-400">{rule.condition}</td>
-                  <td className="py-2 text-[11px] text-slate-500 dark:text-slate-400">{rule.default_action}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <p className="text-2xl font-medium tracking-tight text-slate-800 dark:text-slate-200 mt-2">
+            {risk.label}
+          </p>
+          <p className="max-w-md mx-auto mt-4 text-sm text-slate-500 dark:text-slate-400 leading-relaxed">
+            {risk.description}
+          </p>
         </div>
-      </Card>
+      </section>
+
+      {/* What is driving this? */}
+      <section className="panel p-6 sm:p-8">
+        <SectionHeaderPill icon={<Gauge size={16} />} title="What is driving this?" className="mb-8" />
+        
+        <div className="space-y-6 max-w-3xl mx-auto">
+          {risk.contributions.length === 0 ? (
+            <p className="text-center text-slate-500">All metrics are within completely normal baseline ranges.</p>
+          ) : (
+            risk.contributions.sort((a, b) => b.points - a.points).map(contribution => (
+              <ContributionBar key={contribution.key} contribution={contribution} />
+            ))
+          )}
+        </div>
+      </section>
+
+      {/* Historical Trend */}
+      <section className="panel p-6">
+        <SectionHeaderPill icon={<Gauge size={16} />} title="Risk Trend (Last 6 Hours)" className="mb-6" />
+        <RiskTrendChart data={trend} rangeHours={6} height={240} />
+      </section>
+
+      {/* Progressive Disclosure: Technical Model */}
+      <section className="panel overflow-hidden">
+        <button 
+          onClick={() => setShowModel(!showModel)}
+          className="w-full flex items-center justify-between p-6 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors"
+        >
+          <div className="flex items-center gap-3">
+            <div className="grid h-10 w-10 place-items-center rounded-xl bg-slate-100 dark:bg-surface-800 text-slate-500">
+              <Sliders size={20} />
+            </div>
+            <div className="text-left">
+              <h3 className="text-base font-semibold text-slate-900 dark:text-white">Underlying Risk Model</h3>
+              <p className="text-xs text-slate-500">View configuration weights, bands, and cross-sensor rules.</p>
+            </div>
+          </div>
+          <motion.div animate={{ rotate: showModel ? 180 : 0 }}>
+            <ChevronDown size={20} className="text-slate-400" />
+          </motion.div>
+        </button>
+
+        <AnimatePresence>
+          {showModel && model && (
+            <motion.div 
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: "auto", opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              className="border-t border-slate-200/50 dark:border-white/10 p-6 bg-slate-50/30 dark:bg-black/10"
+            >
+              <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-5 mb-8">
+                {model.levels.map(level => (
+                  <div key={level.level} className="rounded-2xl border border-slate-200/60 p-4 dark:border-white/10 bg-white/40 dark:bg-surface-900/40 shadow-sm">
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="h-3 w-3 rounded-full shadow-sm" style={{ backgroundColor: level.color }} />
+                      <span className="text-sm font-bold text-slate-800 dark:text-slate-200">Level {level.level}</span>
+                    </div>
+                    <p className="text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">{level.label}</p>
+                    <p className="text-[10px] text-slate-400">Score {level.min_score}–{level.max_score}</p>
+                  </div>
+                ))}
+              </div>
+
+              <div className="space-y-4">
+                <h4 className="text-xs font-bold uppercase tracking-widest text-slate-400">Cross-Sensor Rules</h4>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {model.combination_rules.map(rule => (
+                    <div key={rule.id} className="rounded-xl border border-slate-200/50 p-4 dark:border-white/5 bg-white/20 dark:bg-surface-900/20">
+                      <div className="flex justify-between items-start mb-2">
+                        <span className="font-semibold text-sm text-slate-700 dark:text-slate-200">{rule.label}</span>
+                        <span className="text-xs font-bold text-rose-500 bg-rose-500/10 px-2 py-0.5 rounded-full">+{rule.points} pts</span>
+                      </div>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">{rule.reason || "Configured on backend"}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </section>
+
+    </div>
+  );
+}
+
+function ContributionBar({ contribution }: { contribution: RiskContribution }) {
+  if (contribution.points <= 0) return null;
+
+  const pct = Math.min(100, Math.max(0, (contribution.points / contribution.max_points) * 100));
+  
+  return (
+    <div className="group relative">
+      <div className="flex items-end justify-between mb-2">
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-semibold tracking-wide text-slate-700 dark:text-slate-200">
+            {contribution.label}
+          </span>
+          <span className="text-xs font-medium text-slate-500 bg-slate-100 dark:bg-surface-800 px-2 py-0.5 rounded-md">
+            {contribution.reading?.toFixed(1) ?? "—"} {contribution.unit}
+          </span>
+        </div>
+        <div className="text-right">
+          <span className="text-sm font-bold text-slate-900 dark:text-white">+{contribution.points.toFixed(0)}</span>
+          <span className="text-xs text-slate-400 ml-1">pts</span>
+        </div>
+      </div>
+      
+      {/* Background track */}
+      <div className="h-4 w-full rounded-full bg-slate-100 dark:bg-surface-800 overflow-hidden relative shadow-inner">
+        {/* Fill bar */}
+        <motion.div 
+          className="absolute top-0 left-0 h-full rounded-full bg-gradient-to-r from-orange-400 to-rose-500 shadow-sm"
+          initial={{ width: 0 }}
+          animate={{ width: `${pct}%` }}
+          transition={{ duration: 1, ease: "easeOut" }}
+        />
+      </div>
+      
+      {contribution.reason && (
+        <p className="mt-2 text-xs text-slate-500 dark:text-slate-400 pl-1">{contribution.reason}</p>
+      )}
     </div>
   );
 }

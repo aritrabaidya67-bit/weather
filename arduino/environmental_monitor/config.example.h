@@ -36,14 +36,56 @@
 /* ------------------------------------------------------------------ timing -- */
 #define SEND_INTERVAL_MS 15000UL   /* POST a reading every 15 s                  */
 #define RISK_POLL_INTERVAL_MS 15000UL /* poll LEDs/buzzer state every 15 s       */
-#define WIFI_RETRY_INTERVAL_MS 5000UL /* between Wi-Fi reconnect attempts        */
+#define WIFI_RETRY_INTERVAL_MS 5000UL /* minimum delay between reconnect attempts   */
+/* How long one association attempt is given before it is abandoned and
+ * restarted. Must be long enough for DHCP: restarting too eagerly is the most
+ * common reason an UNO R4 never comes online. */
+#define WIFI_ASSOC_TIMEOUT_MS 20000UL
 #define HTTP_TIMEOUT_MS 6000UL     /* socket read/write timeout                  */
 #define SERIAL_BAUD 115200
 
+/* ============================================================================
+ * TEMPERATURE / HUMIDITY SENSOR SELECTION - read this before wiring anything
+ * ============================================================================
+ * Only *one* of these can be enabled. The two sensors do NOT speak the same
+ * protocol and they are NOT interchangeable:
+ *
+ *  SENSOR_AM2302_DHT22 (default)
+ *      Aosong AM2302 / DHT22. One-wire single-bus, DHT22 frame (16-bit
+ *      humidity, 16-bit signed temperature), 1 ms wake-up, 0.1 C / 0.1 %RH
+ *      resolution, -40..80 C. Read with the Adafruit DHT library.
+ *
+ *  SENSOR_DHT12_I2C
+ *      Aosong DHT12 wired in its **I2C** mode (fixed address 0x5C,
+ *      SDA/SCL). 5-byte frame: humidity integer, humidity decimal,
+ *      temperature integer, temperature decimal, checksum. Read directly on
+ *      the I2C bus; the Adafruit DHT library is not used at all.
+ *
+ * DELIBERATELY NOT SUPPORTED: a DHT12 on a one-wire pin. A DHT12 in one-wire
+ * mode uses the DHT11-style frame (integer + decimal bytes) and an ~18 ms
+ * wake-up, which is a different protocol from the AM2302/DHT22 frame. Feeding
+ * it to the Adafruit library as DHT22 would decode garbage (e.g. a plausible
+ * 24 C / 52 %RH reading turning into "humidity 1331.8 %"), so this firmware
+ * refuses the combination instead of pretending the two are equivalent.
+ * If you have a DHT12, wire it to SDA/SCL and select SENSOR_DHT12_I2C.
+ * ============================================================================ */
+#define SENSOR_AM2302_DHT22 1
+#define SENSOR_DHT12_I2C 2
+
+#define TEMP_HUMIDITY_SENSOR SENSOR_AM2302_DHT22
+
 /* --------------------------------------------------------------- pin map --- */
-/* DHT12 / AM2302 data line (needs a 10 kOhm pull-up to 3V3/5V). */
+/* ONE-WIRE DATA LINE for AM2302/DHT22: Arduino pin D2 (= PIN_DHT).
+ * Needs a 10 kOhm pull-up from DATA to 3V3. Only used when
+ * TEMP_HUMIDITY_SENSOR == SENSOR_AM2302_DHT22. */
 #define PIN_DHT 2
-#define DHT_TYPE DHT22      /* DHT12 in one-wire mode and AM2302 both use DHT22 */
+/* Protocol constant handed to the Adafruit DHT library. Correct for the
+ * AM2302/DHT22 only; see the selection block above. */
+#define DHT_TYPE DHT22
+
+/* Fixed I2C address of the DHT12. Only used when
+ * TEMP_HUMIDITY_SENSOR == SENSOR_DHT12_I2C. */
+#define DHT12_I2C_ADDRESS 0x5C
 
 #define PIN_RAIN_ANALOG A0  /* rain sensor analog output (LM393 board AO) */
 #define PIN_LDR_ANALOG A1   /* LDR divider (GL5528 + 10 kOhm)              */
@@ -51,7 +93,6 @@
 
 /* BMP280 uses the default I2C pins (SDA/SCL) on the UNO R4 WiFi. */
 #define BMP280_I2C_ADDRESS 0x76 /* 0x77 when the SDO pin is tied high */
-#define BMP280_SEA_LEVEL_HPA 1013.25F
 
 /* Five risk LEDs: index 0 = level 1 ... index 4 = level 5. */
 #define PIN_LED_1 3
@@ -61,8 +102,14 @@
 #define PIN_LED_5 7
 #define LED_ACTIVE_HIGH 1   /* set 0 for active-low wiring */
 
-/* Buzzer: D8. 0 = active buzzer (tone() with the fixed resonance frequency),
- * 1 = passive buzzer driven with tone(). Silence is always achievable. */
+/* Buzzer on D8.
+ *   BUZZER_PASSIVE 1 -> passive piezo element, driven with tone() at
+ *                       BUZZER_FREQUENCY_HZ (it has no oscillator of its own,
+ *                       so a plain HIGH would be silent).
+ *   BUZZER_PASSIVE 0 -> active buzzer module with its own oscillator; driven
+ *                       with a plain HIGH/LOW, which on some modules is louder
+ *                       and on all of them is more reliable than tone().
+ * Either way the pattern player is non-blocking and silence is exact. */
 #define PIN_BUZZER 8
 #define BUZZER_PASSIVE 1
 #define BUZZER_FREQUENCY_HZ 2300
@@ -92,13 +139,15 @@
 #define PRESSURE_MIN_HPA 300.0F
 #define PRESSURE_MAX_HPA 1100.0F
 
-/* Consecutive sensor failures before the channel is reported as missing. */
+/* Consecutive read cycles with no valid reading at all before the firmware
+ * escalates the serial error and stops reporting the node as healthy. A cycle
+ * with no valid measurement is never transmitted: the backend would reject an
+ * empty payload with HTTP 422, so sending it would only waste the Wi-Fi stack. */
 #define SENSOR_FAILURE_LIMIT 3
 
-/* --------------------------------------------------------------- robustness - */
-/* A reading whose device clock differs from the server by more than this is
- * dropped by the backend, so the firmware only sends a timestamp when it has
- * synced with the server at least once. */
-#define CLOCK_DRIFT_TOLERANCE_S 900
+/* Wall-clock behaviour: the UNO R4 has no RTC, so the node learns the time from
+ * the backend's `server_time` field and omits `timestamp` until it has. The
+ * backend's MAX_TIMESTAMP_SKEW_SECONDS (default 900) is the authority on how
+ * much drift is tolerated; the firmware never sends an unsynced clock. */
 
 #endif /* ENVMON_CONFIG_H */

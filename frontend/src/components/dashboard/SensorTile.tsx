@@ -1,15 +1,13 @@
 /**
- * Sensor tile — deliberately sparse: icon, value, name, trend, sparkline.
- *
- * Everything explanatory (statistics, anomalies, baseline, interpretation)
- * lives on the sensor detail page that this tile links to.
+ * Premium Sensor Tile.
+ * Sparse: icon, value, name, trend, sparkline.
+ * Adds soft glows, lifting hover interactions, and beautiful spacing.
  */
 
 import { motion } from "framer-motion";
-import { ChevronRight } from "lucide-react";
 import { Link } from "react-router-dom";
 import type { ChannelCard as ChannelCardType } from "../../types";
-import { classNames, unitSymbol } from "../../utils/format";
+import { unitSymbol } from "../../utils/format";
 import { AnimatedNumber } from "../common/AnimatedNumber";
 import { TrendPill } from "../common/TrendPill";
 import { Sparkline } from "../charts/Sparkline";
@@ -21,54 +19,64 @@ export function SensorTile({ card, index = 0 }: { card: ChannelCardType; index?:
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 8 }}
+      initial={{ opacity: 0, y: 15 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.32, delay: Math.min(index * 0.04, 0.24), ease: [0.22, 1, 0.36, 1] }}
+      transition={{ duration: 0.5, delay: Math.min(index * 0.05, 0.3), ease: [0.16, 1, 0.3, 1] }}
     >
       <Link
         to={`/sensors/${card.channel}`}
-        className={classNames("tile tile-hover group block", !card.severity || card.severity === "unknown" ? "" : "")}
+        className="tile tile-hover group block h-full flex flex-col justify-between"
         aria-label={`${card.label}: ${missing ? "no reading" : `${card.value} ${card.unit}`}`}
+        style={{
+          boxShadow: `inset 0 1px 0 rgba(255,255,255,0.4), 0 4px 16px -4px ${card.color}15`,
+        }}
       >
-        <div className="flex items-center justify-between gap-2">
-          <span className="flex items-center gap-1.5 text-[11px] font-medium text-slate-500 dark:text-slate-400">
-            <Icon size={13} style={{ color: card.color }} aria-hidden />
-            {missing ? "no reading" : card.status}
-          </span>
-          <ChevronRight
-            size={13}
-            className="text-slate-300 transition-transform group-hover:translate-x-0.5 dark:text-slate-600"
-            aria-hidden
-          />
+        <div className="glass-overlay rounded-2xl" />
+
+        <div className="relative z-10">
+          <div className="flex items-center justify-between mb-3">
+            <div 
+              className="flex items-center justify-center w-8 h-8 rounded-full" 
+              style={{ backgroundColor: `${card.color}15`, color: card.color }}
+            >
+              <Icon size={16} strokeWidth={2.5} aria-hidden />
+            </div>
+            
+            {!missing && (
+              <span className="text-[10px] font-bold tracking-widest uppercase" style={{ color: card.color }}>
+                {card.status}
+              </span>
+            )}
+          </div>
+
+          <div className="flex items-baseline gap-1 mt-1">
+            <AnimatedNumber
+              value={card.value}
+              decimals={card.decimals ?? 1}
+              className="text-3xl font-semibold tracking-tight text-slate-900 dark:text-white"
+            />
+            <span className="text-sm font-medium text-slate-400">{missing ? "" : unitSymbol(card.unit)}</span>
+          </div>
+
+          <div className="mt-1 flex items-center justify-between">
+            <span className="text-sm font-medium text-slate-500 dark:text-slate-400">{card.label}</span>
+            <TrendPill
+              compact
+              direction={card.trend}
+              change={card.change}
+              unit={card.unit}
+              decimals={card.decimals ?? 1}
+            />
+          </div>
         </div>
 
-        <div className="mt-2 flex items-baseline gap-1">
-          <AnimatedNumber
-            value={card.value}
-            decimals={card.decimals ?? 1}
-            className="text-2xl font-semibold leading-none text-slate-900 dark:text-white"
-          />
-          <span className="text-xs font-medium text-slate-400">{missing ? "" : unitSymbol(card.unit)}</span>
-        </div>
-
-        <div className="mt-1 flex items-center justify-between gap-2">
-          <span className="truncate text-xs text-slate-500 dark:text-slate-400">{card.label}</span>
-          <TrendPill
-            compact
-            direction={card.trend}
-            change={card.change}
-            unit={card.unit}
-            decimals={card.decimals ?? 1}
-          />
-        </div>
-
-        <div className="mt-2 h-8 opacity-90">
+        <div className="relative z-10 mt-4 h-10 w-full opacity-80 group-hover:opacity-100 transition-opacity">
           {missing || card.sparkline.length < 2 ? (
-            <div className="grid h-full place-items-center rounded-md border border-dashed border-slate-200 text-[10px] text-slate-400 dark:border-slate-800">
+            <div className="grid h-full place-items-center rounded-lg border border-dashed border-slate-200 bg-slate-50/50 text-[10px] text-slate-400 dark:border-white/5 dark:bg-white/5">
               collecting…
             </div>
           ) : (
-            <Sparkline points={card.sparkline} color={card.color} height={32} />
+            <Sparkline points={card.sparkline} color={card.color} height={40} />
           )}
         </div>
       </Link>

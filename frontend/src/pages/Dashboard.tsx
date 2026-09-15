@@ -1,13 +1,12 @@
 /**
- * Overview — a command centre, not a report.
- *
- * Priority order on screen: overall status → risk → live values → trend →
- * forecast → anything that needs a human. Explanations, statistics, sensor
- * health and raw channels live on the pages this one links to.
+ * Overview — The Hero Dashboard.
+ * 
+ * Re-architected for maximum understanding and minimal cognitive load.
+ * "Understand the state before reading the data."
  */
 
 import { motion } from "framer-motion";
-import { Cpu, Radio } from "lucide-react";
+import { Cpu } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { NextUp } from "../components/dashboard/NextUp";
@@ -15,19 +14,16 @@ import { AttentionStrip } from "../components/dashboard/AttentionStrip";
 import { SensorTile } from "../components/dashboard/SensorTile";
 import { StatusOrb, statusWordFor } from "../components/dashboard/StatusOrb";
 import { TREND_RANGES, TrendPanel, type TrendMetricKey } from "../components/dashboard/TrendPanel";
-import { AnimatedNumber } from "../components/common/AnimatedNumber";
-import { Card, CardSkeleton, ErrorState, Skeleton } from "../components/common/Ui";
+import { CardSkeleton, Skeleton } from "../components/common/Ui";
 import { api, ApiError } from "../services/api";
 import { usePlatform } from "../state/PlatformContext";
 import type { HistoryResponse, PredictionResponse } from "../types";
-import { classNames, formatSigned, freshnessLabel, riskColor, unitSymbol } from "../utils/format";
 
-/** The three numbers that answer "is it comfortable right now?". */
-const HERO_METRICS = ["temperature", "humidity", "air_quality"] as const;
+const HERO_METRICS = ["temperature", "humidity", "air_quality", "pressure"] as const;
 
 export default function Dashboard() {
   const { overview, loading, error, refresh } = usePlatform();
-  const [rangeLabel, setRangeLabel] = useState("6 h");
+  const [rangeLabel, setRangeLabel] = useState("6h");
   const [metric, setMetric] = useState<TrendMetricKey>("temperature_c");
   const [history, setHistory] = useState<HistoryResponse | null>(null);
   const [historyError, setHistoryError] = useState<string | null>(null);
@@ -67,11 +63,11 @@ export default function Dashboard() {
 
   if (loading && !overview) {
     return (
-      <div className="space-y-4">
-        <Skeleton className="h-64 w-full rounded-2xl" />
-        <div className="grid gap-3 sm:grid-cols-3">
-          {Array.from({ length: 3 }).map((_, index) => (
-            <CardSkeleton key={index} />
+      <div className="space-y-6">
+        <Skeleton className="h-72 w-full rounded-[2rem]" />
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, index) => (
+            <CardSkeleton key={index} className="h-40" />
           ))}
         </div>
       </div>
@@ -79,109 +75,66 @@ export default function Dashboard() {
   }
 
   if (error && !overview?.has_data) {
-    return <ErrorState title="Backend not reachable" message={error} onRetry={() => void refresh()} />;
+    return (
+      <div className="flex flex-col items-center justify-center py-20 text-center">
+        <div className="rounded-full bg-rose-500/10 p-4 mb-4 text-rose-500">
+          <Cpu size={32} />
+        </div>
+        <h2 className="text-xl font-semibold text-slate-900 dark:text-white">Can't reach the monitoring service.</h2>
+        <p className="mt-2 text-slate-500 max-w-sm">{error}</p>
+        <button onClick={() => void refresh()} className="mt-6 rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-200">
+          Retry
+        </button>
+      </div>
+    );
   }
 
   if (!overview?.has_data) {
-    return <WaitingForDevice message={overview?.device?.status_message} />;
+    return <WaitingForDevice />;
   }
 
   const risk = overview.risk;
   const word = statusWordFor(risk.level);
-  const fresh = freshnessLabel(latestAt);
   const heroCards = HERO_METRICS.map((key) => overview.channels.find((card) => card.channel === key)).filter(
-    (card): card is NonNullable<typeof card> => Boolean(card),
+    (card): card is NonNullable<typeof card> => Boolean(card)
   );
 
   return (
-    <div className="space-y-4">
-      {/* Hero: status first, everything else supports it. */}
-      <section className="panel-hero">
-        <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-slate-300/60 to-transparent dark:via-slate-700/60" />
-        <div className="grid items-center gap-6 p-5 lg:grid-cols-[auto_minmax(0,1fr)_minmax(0,18rem)] lg:p-7">
-          <motion.div
-            initial={{ opacity: 0, scale: 0.94 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
-            className="mx-auto"
-          >
-            <StatusOrb
-              level={risk.level}
-              score={risk.score}
-              levelLabel={risk.label}
-              word={word}
-              confidence={risk.confidence}
-              stale={overview.stale}
-            />
-          </motion.div>
+    <div className="space-y-6 sm:space-y-8 animate-float-in">
+      
+      {/* Priority 1: The Alert Strip (Only if there are alerts) */}
+      <AttentionStrip alerts={overview.alerts} anomalies={overview.anomalies} />
 
-          <div className="min-w-0">
-            <p className="text-[13px] text-slate-500 dark:text-slate-400">{overview.classification.label}</p>
-            {risk.reasons.length ? (
-              <p className="mt-1 max-w-xl text-sm text-slate-700 dark:text-slate-200">
-                {risk.reasons.slice(0, 2).join(" · ")}
-              </p>
-            ) : (
-              <p className="mt-1 text-sm text-slate-700 dark:text-slate-200">
-                Everything is inside the normal range.
-              </p>
-            )}
+      {/* Priority 2: Overall Status & Key Sensors */}
+      <section className="grid gap-6 xl:grid-cols-[400px_minmax(0,1fr)]">
+        
+        {/* The Hero State */}
+        <div className="panel-hero flex flex-col justify-center min-h-[380px]">
+          <StatusOrb
+            level={risk.level}
+            score={risk.score}
+            levelLabel={risk.label}
+            word={word}
+            confidence={risk.confidence}
+            stale={overview.stale}
+          />
+        </div>
 
-            <div className="mt-5 grid grid-cols-3 gap-4">
-              {heroCards.map((card, index) => (
-                <motion.div
-                  key={card.channel}
-                  initial={{ opacity: 0, y: 6 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.3, delay: 0.08 + index * 0.06 }}
-                >
-                  <Link to={`/sensors/${card.channel}`} className="group block">
-                    <div className="flex items-baseline gap-0.5">
-                      <AnimatedNumber
-                        value={card.value}
-                        decimals={card.decimals ?? 1}
-                        className="text-2xl font-semibold text-slate-900 sm:text-3xl dark:text-white"
-                      />
-                      <span className="text-xs text-slate-400">{unitSymbol(card.unit)}</span>
-                    </div>
-                    <p className="mt-0.5 text-[11px] uppercase tracking-wide text-slate-400">{card.label}</p>
-                    <p className="mt-0.5 text-xs font-medium text-slate-500 group-hover:text-cyan-600 dark:text-slate-400 dark:group-hover:text-cyan-300">
-                      {card.change !== null
-                        ? `${formatSigned(card.change, card.decimals ?? 1)}${unitSymbol(card.unit)} · ${card.status}`
-                        : card.status}
-                    </p>
-                  </Link>
-                </motion.div>
-              ))}
-            </div>
-          </div>
-
-          <div className="flex flex-col gap-3 lg:items-end">
-            <Link
-              to="/risk"
-              className="group inline-flex flex-col gap-1 rounded-2xl border border-slate-200/80 px-4 py-3 text-left transition-colors hover:border-slate-300 dark:border-slate-800 dark:hover:border-slate-700"
-              style={{ borderColor: `${riskColor(risk.level)}55` }}
-            >
-              <span className="text-[11px] uppercase tracking-wider text-slate-400">Risk breakdown</span>
-              <span className="flex items-center gap-2 text-sm font-medium text-slate-700 dark:text-slate-200">
-                {risk.contributions
-                  .filter((item) => item.points >= 1)
-                  .slice(0, 2)
-                  .map((item) => `${item.label} +${item.points.toFixed(0)}`)
-                  .join(" · ") || "no factor above the baseline"}
-              </span>
-              <span className="text-[11px] text-cyan-600 group-hover:underline dark:text-cyan-300">why this score →</span>
-            </Link>
-            <p className="flex items-center gap-1.5 text-[11px] text-slate-400">
-              <Radio size={11} className={classNames(overview.stale ? "" : "text-emerald-500")} aria-hidden />
-              {fresh.label} · reading {fresh.stale ? "stale" : "current"}
-            </p>
-          </div>
+        {/* The Live Sensor Modules */}
+        <div className="grid gap-4 sm:grid-cols-2">
+          {heroCards.map((card, index) => (
+            <SensorTile key={card.channel} card={card} index={index} />
+          ))}
         </div>
       </section>
 
-      {/* Trend + forecast */}
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.65fr)_minmax(0,1fr)]">
+      {/* Priority 3: Visual Prediction (What happens next) */}
+      <section>
+        <NextUp prediction={prediction} />
+      </section>
+
+      {/* Priority 4: The Core Trend (One chart, beautifully rendered) */}
+      <section className="h-[420px]">
         <TrendPanel
           history={history}
           metric={metric}
@@ -192,66 +145,36 @@ export default function Dashboard() {
           loading={!history && !historyError}
           error={historyError}
         />
-        <NextUp prediction={prediction} />
-      </div>
-
-      {/* Live values */}
-      <section>
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
-          {overview.channels.map((card, index) => (
-            <SensorTile key={card.channel} card={card} index={index} />
-          ))}
-        </div>
       </section>
 
-      {/* Attention */}
-      <AttentionStrip alerts={overview.alerts} anomalies={overview.anomalies} />
-
-      <p className="flex flex-wrap items-center gap-x-3 gap-y-1 px-1 text-[11px] text-slate-400">
-        <span>{overview.reading_count} readings in {rangeLabel}</span>
-        <span>sensor health {overview.risk.context.health_score?.toFixed(0) ?? "—"}%</span>
-        <span>coverage {Math.round((risk.data_coverage ?? 0) * 100)}%</span>
-        <Link to="/sensors" className="hover:underline">
-          all sensors →
-        </Link>
-        <Link to="/analytics" className="hover:underline">
-          analytics →
-        </Link>
-      </p>
     </div>
   );
 }
 
-function WaitingForDevice({ message }: { message?: string }) {
+function WaitingForDevice() {
   return (
-    <Card className="overflow-hidden">
-      <div className="flex flex-col items-center gap-4 py-8 text-center">
-        <div className="relative grid h-20 w-20 place-items-center">
-          <span className="absolute inset-0 animate-[breathe_5.5s_ease-in-out_infinite] rounded-full bg-slate-500/10" />
-          <span className="absolute inset-3 rounded-full border border-dashed border-slate-300 dark:border-slate-700" />
-          <Cpu size={22} className="relative text-slate-400" aria-hidden />
+    <div className="panel-hero min-h-[60vh] flex flex-col items-center justify-center text-center p-8">
+      <motion.div 
+        className="relative grid h-24 w-24 place-items-center mb-8"
+        animate={{ scale: [1, 1.05, 1] }}
+        transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
+      >
+        <span className="absolute inset-0 rounded-full border-2 border-dashed border-slate-300 dark:border-slate-700 animate-[spin_20s_linear_infinite]" />
+        <div className="absolute inset-4 rounded-full bg-slate-100 dark:bg-surface-800 grid place-items-center shadow-inner">
+          <Cpu size={28} className="text-slate-400 dark:text-slate-500" />
         </div>
-        <div>
-          <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">Waiting for the Arduino</p>
-          <p className="mx-auto mt-1 max-w-sm text-xs text-slate-500 dark:text-slate-400">
-            {message ?? "Power the node, point it at this machine's LAN IP and the dashboard fills in by itself."}
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center justify-center gap-2 text-xs">
-          <Link
-            to="/device"
-            className="rounded-lg border border-slate-200 px-3 py-1.5 font-medium transition hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800"
-          >
-            Hardware setup
-          </Link>
-          <a
-            href="/docs"
-            className="rounded-lg border border-slate-200 px-3 py-1.5 font-medium transition hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800"
-          >
-            API docs
-          </a>
-        </div>
+      </motion.div>
+      
+      <h2 className="text-2xl font-semibold tracking-tight text-slate-900 dark:text-white">Waiting for your device</h2>
+      <p className="mt-3 text-slate-500 dark:text-slate-400 max-w-sm">
+        Connect the Arduino to start monitoring. The dashboard will automatically update when data arrives.
+      </p>
+      
+      <div className="mt-8 flex gap-3">
+        <Link to="/device" className="rounded-full bg-slate-900 px-6 py-2.5 text-sm font-medium text-white transition hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-200">
+          Hardware Setup
+        </Link>
       </div>
-    </Card>
+    </div>
   );
 }

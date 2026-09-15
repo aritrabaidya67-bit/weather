@@ -1,6 +1,6 @@
 /**
- * Live trend panel — one large chart, switched by metric, instead of several
- * charts competing for attention.
+ * Live trend panel.
+ * One beautiful chart replacing multiple dense grids.
  */
 
 import { motion } from "framer-motion";
@@ -34,11 +34,11 @@ export const TREND_METRICS: {
 ];
 
 export const TREND_RANGES = [
-  { label: "15 m", hours: 0.25, bucket: "15m" },
-  { label: "1 h", hours: 1, bucket: "1h" },
-  { label: "6 h", hours: 6, bucket: "6h" },
-  { label: "24 h", hours: 24, bucket: "24h" },
-  { label: "7 d", hours: 168, bucket: "7d" },
+  { label: "15m", hours: 0.25, bucket: "15m" },
+  { label: "1h", hours: 1, bucket: "1h" },
+  { label: "6h", hours: 6, bucket: "6h" },
+  { label: "24h", hours: 24, bucket: "24h" },
+  { label: "7d", hours: 168, bucket: "7d" },
 ];
 
 export function TrendPanel({
@@ -66,44 +66,49 @@ export function TrendPanel({
   const rangeHours = ranges.find((item) => item.label === rangeLabel)?.hours ?? 6;
 
   return (
-    <section className="panel flex h-full flex-col p-4">
-      <SectionHeaderPill
-        icon={<ActiveIcon size={14} />}
-        title="Live trend"
-        meta={
-          series?.latest !== null && series?.latest !== undefined
-            ? `${series.latest.toFixed(active.decimals)}${unitSymbol(series.unit)} now`
-            : undefined
-        }
-      />
+    <section className="panel flex h-full flex-col p-6 overflow-hidden relative">
+      <div className="glass-overlay" />
+      
+      <div className="relative z-10 flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+        <SectionHeaderPill
+          icon={<ActiveIcon size={16} strokeWidth={2.5} />}
+          title="Live Trend"
+          meta={
+            series?.latest !== null && series?.latest !== undefined
+              ? `${series.latest.toFixed(active.decimals)}${unitSymbol(series.unit)} now`
+              : undefined
+          }
+        />
 
-      <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-        <SegmentedToggle
-          options={TREND_METRICS.map((item) => ({ key: item.key, label: item.label, icon: item.icon, color: item.color }))}
-          value={metric}
-          onChange={(key) => onMetricChange(key as TrendMetricKey)}
-        />
-        <SegmentedToggle
-          options={ranges.map((item) => ({ key: item.label, label: item.label }))}
-          value={rangeLabel}
-          onChange={onRangeChange}
-          compact
-        />
+        <div className="flex items-center justify-end gap-3 flex-wrap">
+          <SegmentedToggle
+            options={TREND_METRICS.map((item) => ({ key: item.key, label: item.label, icon: item.icon, color: item.color }))}
+            value={metric}
+            onChange={(key) => onMetricChange(key as TrendMetricKey)}
+          />
+          <SegmentedToggle
+            options={ranges.map((item) => ({ key: item.label, label: item.label }))}
+            value={rangeLabel}
+            onChange={onRangeChange}
+            compact
+          />
+        </div>
       </div>
 
-      <div className="mt-3 flex-1">
+      <div className="relative z-10 mt-2 flex-1 min-h-[280px]">
         {error ? (
-          <div className="grid h-56 place-items-center rounded-xl border border-dashed border-rose-400/50 text-xs text-rose-500">
+          <div className="grid h-full place-items-center rounded-xl border border-dashed border-rose-400/30 bg-rose-500/5 text-sm font-medium text-rose-500">
             {error}
           </div>
         ) : loading && !series ? (
-          <Skeleton className="h-56 w-full" />
+          <Skeleton className="h-full w-full opacity-60" />
         ) : series ? (
           <motion.div
             key={`${metric}-${rangeLabel}`}
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ duration: 0.28 }}
+            initial={{ opacity: 0, filter: "blur(4px)" }}
+            animate={{ opacity: 1, filter: "blur(0px)" }}
+            transition={{ duration: 0.4, ease: "easeOut" }}
+            className="h-full w-full"
           >
             <TimeSeriesChart
               series={series}
@@ -111,26 +116,19 @@ export function TrendPanel({
               rangeHours={rangeHours}
               band={{ low: active.band?.low ?? null, high: active.band?.high ?? null, label: undefined }}
               decimals={active.decimals}
-              height={264}
+              height={280}
             />
           </motion.div>
         ) : (
-          <div className="grid h-56 place-items-center rounded-xl border border-dashed border-slate-200 text-xs text-slate-400 dark:border-slate-800">
-            no readings in this range yet
+          <div className="grid h-full place-items-center rounded-xl border border-dashed border-slate-200/50 bg-slate-50/50 text-sm font-medium text-slate-400 dark:border-white/5 dark:bg-surface-800/30">
+            Waiting for sufficient readings...
           </div>
         )}
       </div>
-
-      {history && !history.sufficient_data ? (
-        <p className="mt-2 text-[11px] text-slate-400">
-          limited history in this range — trends sharpen as readings accumulate
-        </p>
-      ) : null}
     </section>
   );
 }
 
-/** Small segmented control: the only "button row" the dashboard needs. */
 export function SegmentedToggle({
   options,
   value,
@@ -143,7 +141,7 @@ export function SegmentedToggle({
   compact?: boolean;
 }) {
   return (
-    <div className="inline-flex items-center gap-0.5 rounded-full border border-slate-200/80 bg-slate-100/60 p-0.5 dark:border-slate-800 dark:bg-slate-900/60">
+    <div className="inline-flex items-center gap-1 rounded-full border border-slate-200/60 bg-slate-100/50 p-1 backdrop-blur-md dark:border-white/10 dark:bg-surface-900/40 shadow-inner">
       {options.map((option) => {
         const isActive = option.key === value;
         const Icon = option.icon ? channelIcon(option.icon) : null;
@@ -153,23 +151,25 @@ export function SegmentedToggle({
             type="button"
             onClick={() => onChange(option.key)}
             className={classNames(
-              "relative inline-flex items-center gap-1.5 rounded-full font-medium transition-colors",
-              compact ? "px-2.5 py-1 text-[11px]" : "px-3 py-1.5 text-xs",
+              "relative inline-flex items-center justify-center gap-1.5 rounded-full font-medium transition-colors outline-none",
+              compact ? "px-3 py-1.5 text-xs" : "px-3.5 py-1.5 text-sm",
               isActive
                 ? "text-slate-900 dark:text-white"
-                : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100",
+                : "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
             )}
             aria-pressed={isActive}
           >
-            {isActive ? (
+            {isActive && (
               <motion.span
                 layoutId={compact ? "segment-range" : "segment-metric"}
-                className="absolute inset-0 rounded-full bg-white shadow-sm dark:bg-slate-800"
-                transition={{ type: "spring", stiffness: 420, damping: 34 }}
+                className="absolute inset-0 rounded-full bg-white shadow-sm dark:bg-surface-800 dark:border dark:border-white/5"
+                transition={{ type: "spring", stiffness: 500, damping: 40 }}
               />
-            ) : null}
-            <span className="relative flex items-center gap-1.5">
-              {Icon ? <Icon size={12} style={{ color: isActive ? option.color : undefined }} aria-hidden /> : null}
+            )}
+            <span className="relative z-10 flex items-center gap-1.5 whitespace-nowrap">
+              {Icon && !compact && (
+                <Icon size={14} strokeWidth={isActive ? 2.5 : 2} style={{ color: isActive ? option.color : undefined }} aria-hidden />
+              )}
               <span>{option.label}</span>
             </span>
           </button>

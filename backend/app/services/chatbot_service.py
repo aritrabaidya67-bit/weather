@@ -32,7 +32,7 @@ from .prediction_service import PredictionService
 logger = get_logger("app.chatbot")
 
 GROUNDING_RULES = """You are the analysis assistant of an environmental monitoring platform.
-The platform collects data from an Arduino UNO R4 Wi-Fi node with DHT12/AM2302
+The platform collects data from an Arduino UNO R4 Wi-Fi node with AM2302/DHT22
 temperature+humidity, BMP280 pressure, rain, LDR light and MQ-135 air-quality sensors.
 
 ABSOLUTE RULES

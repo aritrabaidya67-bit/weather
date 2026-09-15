@@ -24,7 +24,7 @@ from .core.config import get_settings
 from .core.database import describe_database, init_db
 from .core.logging import configure_logging, get_logger
 from .core.realtime import bus
-from .core.security import keys_are_configured, register_secret
+from .core.security import key_strength_problem, register_secret
 from .services import IngestionRejected, scheduler
 from .utils.timeutils import utcnow
 
@@ -37,8 +37,8 @@ API_PREFIX = "/api/v1"
 DESCRIPTION = """
 **Environmental Intelligence Platform** - FastAPI backend.
 
-Edge device: **Arduino UNO R4 WiFi** (DHT12/AM2302, BMP280, rain, LDR, MQ-135,
-5 risk LEDs and a buzzer) posting JSON over Wi-Fi.
+Edge device: **Arduino UNO R4 WiFi** (AM2302/DHT22 temperature + humidity,
+BMP280, rain, LDR, MQ-135, 5 risk LEDs and a buzzer) posting JSON over Wi-Fi.
 
 The backend validates and normalises every payload, stores the history, computes
 an explainable risk score, detects anomalies, forecasts the near future, raises
@@ -64,11 +64,31 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     )
     register_secret(settings.api_key)
     register_secret(settings.admin_api_key)
-    if not keys_are_configured(settings):
+    key_problem = key_strength_problem(settings.api_key)
+    if key_problem:
         logger.warning(
             "api_key_not_configured",
-            hint="Set API_KEY in backend/.env; device endpoints return HTTP 503 until then.",
+            reason=key_problem,
+            hint=(
+                "Device endpoints (/sensors/data, /device/*/risk-state) return HTTP 503 until a "
+                "real key is set. Generate one with: "
+                'python -c "import secrets; print(secrets.token_urlsafe(32))"'
+            ),
         )
+    if settings.cors_wildcard_requested:
+        logger.warning(
+            "cors_wildcard_ignored",
+            detail=(
+                "CORS_ORIGINS contained '*', which is ignored: list the exact frontend origins "
+                "instead. A wildcard would let any web page call this API from a browser."
+            ),
+        )
+    logger.info(
+        "cors_configured",
+        origins=settings.cors_origin_list,
+        lan_regex=settings.cors_allow_lan_origins,
+        custom_regex=bool(settings.cors_origin_regex.strip()),
+    )
     init_db()
     logger.info("database_ready", database=describe_database())
     await scheduler.start()
@@ -93,10 +113,15 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origin_list,
-    allow_origin_regex=settings.cors_origin_regex,
+    # None (not "") means "no regex": the explicit origin list above is the only
+    # policy. See docs/architecture.md for the development vs production story.
+    allow_origin_regex=settings.cors_regex,
+    # No cookie/session auth exists, so credentials must stay off: with
+    # allow_credentials the browser would send ambient credentials to any
+    # allowed origin, which is exactly what we do not want here.
     allow_credentials=False,
-    allow_methods=["*"],
-    allow_headers=["*", settings.api_key_header, "X-Requested-With"],
+    allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "Accept", settings.api_key_header, "X-Requested-With"],
     expose_headers=["X-Process-Time", "Retry-After"],
 )
 

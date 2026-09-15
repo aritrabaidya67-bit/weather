@@ -1,18 +1,15 @@
 /**
- * AI analyst panel.
- *
- * Grounding is always visible: every answer states whether the model or the
- * built-in rule-based analyst produced it, and citations point back at the
- * platform's own data snapshot. Streaming tokens arrive over NDJSON.
+ * AI Chat Panel: Re-styled to fit the premium design aesthetic.
+ * Focuses on smooth transitions, premium inputs, and elegant bubbles.
  */
 
 import { AnimatePresence, motion } from "framer-motion";
-import { AlertTriangle, BrainCircuit, Cpu, Eraser, Send, Sparkles, User } from "lucide-react";
+import { AlertTriangle, BrainCircuit, Eraser, Send, Sparkles, User, Database } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, streamChat, ApiError } from "../../services/api";
-import type { ChatCitation, ChatMessage, OllamaStatus } from "../../types";
+import type { ChatMessage, OllamaStatus } from "../../types";
 import { classNames, relativeTime } from "../../utils/format";
-import { Chip, DataBadge, EmptyState, Spinner } from "../common/Ui";
+import { Chip, Spinner } from "../common/Ui";
 
 const SESSION_KEY = "eip-chat-session";
 
@@ -36,8 +33,7 @@ export function ChatPanel({ deviceId, compact = false }: { deviceId?: string | n
   useEffect(() => {
     void api.chatStatus().then(setStatus).catch(() => setStatus(null));
     void api.chatSuggestions(deviceId ?? undefined).then((data) => setSuggestions(data.questions)).catch(() => undefined);
-    void api
-      .chatHistory(sessionRef.current)
+    void api.chatHistory(sessionRef.current)
       .then((data) => {
         const restored: ChatMessage[] = data.messages.map((raw) => ({
           role: (raw.role as "user" | "assistant") ?? "assistant",
@@ -47,8 +43,7 @@ export function ChatPanel({ deviceId, compact = false }: { deviceId?: string | n
           warning: (raw.error as string | null) ?? null,
         }));
         if (restored.length) setMessages(restored.slice(-12));
-      })
-      .catch(() => undefined);
+      }).catch(() => undefined);
   }, [deviceId]);
 
   useEffect(() => {
@@ -56,116 +51,87 @@ export function ChatPanel({ deviceId, compact = false }: { deviceId?: string | n
     if (node) node.scrollTop = node.scrollHeight;
   }, [messages, streamingText]);
 
-  const history = useMemo(
-    () => messages.slice(-8).map((message) => ({ role: message.role, content: message.content })),
-    [messages],
-  );
+  const history = useMemo(() => messages.slice(-8).map((m) => ({ role: m.role, content: m.content })), [messages]);
 
-  const send = useCallback(
-    async (question: string) => {
-      const trimmed = question.trim();
-      if (!trimmed || busy) return;
-      setError(null);
-      setBusy(true);
-      setInput("");
-      const userMessage: ChatMessage = {
-        role: "user",
-        content: trimmed,
-        createdAt: new Date().toISOString(),
-      };
-      setMessages((current) => [...current, userMessage]);
+  const send = useCallback(async (question: string) => {
+    const trimmed = question.trim();
+    if (!trimmed || busy) return;
+    setError(null);
+    setBusy(true);
+    setInput("");
+    
+    setMessages((current) => [...current, { role: "user", content: trimmed, createdAt: new Date().toISOString() }]);
+    setStreamingText("");
+
+    let accumulated = "";
+    try {
+      await streamChat(
+        { message: trimmed, session_id: sessionRef.current, device_id: deviceId ?? undefined, history },
+        {
+          onToken: (token) => { accumulated += token; setStreamingText(accumulated); },
+          onError: (msg) => setError(msg),
+        },
+      );
+      setMessages((current) => [
+        ...current,
+        { role: "assistant", content: accumulated || "(no answer returned)", createdAt: new Date().toISOString(), model: status?.model ?? null, streaming: false },
+      ]);
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught.detail : "The AI analyst could not be reached.");
+    } finally {
       setStreamingText("");
-
-      let accumulated = "";
-      try {
-        await streamChat(
-          {
-            message: trimmed,
-            session_id: sessionRef.current,
-            device_id: deviceId ?? undefined,
-            history,
-          },
-          {
-            onToken: (token) => {
-              accumulated += token;
-              setStreamingText(accumulated);
-            },
-            onError: (message) => setError(message),
-          },
-        );
-        setMessages((current) => [
-          ...current,
-          {
-            role: "assistant",
-            content: accumulated || "(no answer returned)",
-            createdAt: new Date().toISOString(),
-            model: status?.model ?? null,
-            streaming: false,
-          },
-        ]);
-      } catch (caught) {
-        const message =
-          caught instanceof ApiError
-            ? caught.detail
-            : "The AI analyst could not be reached. The sensor dashboard keeps working.";
-        setError(message);
-      } finally {
-        setStreamingText("");
-        setBusy(false);
-      }
-    },
-    [busy, deviceId, history, status?.model],
-  );
+      setBusy(false);
+    }
+  }, [busy, deviceId, history, status?.model]);
 
   const clear = useCallback(async () => {
     setMessages([]);
     setError(null);
-    try {
-      await api.clearChatHistory(sessionRef.current);
-    } catch {
-      /* clearing locally is enough */
-    }
+    try { await api.clearChatHistory(sessionRef.current); } catch {}
   }, []);
 
   return (
-    <div className={classNames("flex flex-col", compact ? "h-[620px]" : "h-[calc(100dvh-230px)] min-h-[520px]")}>
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200/80 pb-3 dark:border-slate-800/80">
-        <div className="flex items-center gap-2">
-          <span className="grid h-8 w-8 place-items-center rounded-lg bg-cyan-500/15 text-cyan-600 dark:text-cyan-300">
-            <BrainCircuit size={16} />
-          </span>
+    <div className={classNames("flex flex-col relative", compact ? "h-[620px]" : "h-[calc(100dvh-230px)] min-h-[520px]")}>
+      
+      {/* Chat Header */}
+      <div className="flex flex-wrap items-center justify-between gap-4 p-4 border-b border-slate-200/50 dark:border-white/5 bg-slate-50/50 dark:bg-surface-900/50 rounded-t-2xl">
+        <div className="flex items-center gap-3">
+          <div className="grid h-10 w-10 place-items-center rounded-xl bg-cyan-500/10 text-cyan-600 dark:bg-cyan-500/20 dark:text-cyan-400 shadow-inner">
+            <BrainCircuit size={20} />
+          </div>
           <div>
-            <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">Environmental analyst</p>
-            <p className="text-[11px] text-slate-500 dark:text-slate-400">
-              {status?.available
-                ? `Local model: ${status.model} via Ollama (${status.host})`
-                : status?.installed
-                  ? "Ollama detected but not reachable - answers come from the built-in analyst"
-                  : "No local model detected - answers come from the built-in analyst"}
+            <h2 className="text-base font-bold text-slate-800 dark:text-white flex items-center gap-2">
+              Environmental Analyst
+              {status?.available ? <Chip severity="good">Online</Chip> : <Chip severity="watch">Fallback</Chip>}
+            </h2>
+            <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">
+              {status?.available ? `Powered by Ollama (${status.model})` : "Using built-in rule-based analysis"}
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          {status?.available ? <Chip severity="good">model ready</Chip> : <Chip severity="watch">rule-based fallback</Chip>}
-          <button
-            type="button"
-            onClick={() => void clear()}
-            className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2 py-1 text-[11px] text-slate-500 transition hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800"
-          >
-            <Eraser size={12} />
-            Clear
-          </button>
-        </div>
+        <button
+          onClick={clear}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-500 hover:bg-white hover:text-slate-900 hover:shadow-sm dark:hover:bg-surface-800 dark:hover:text-white transition-all"
+        >
+          <Eraser size={14} /> Clear Chat
+        </button>
       </div>
 
-      <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto py-4 pr-1">
-        {messages.length === 0 && !streamingText ? (
-          <EmptyState
-            icon={<Sparkles size={18} />}
-            title="Ask about the current environment"
-            message="The assistant only sees data this platform actually measured: current readings, baselines, anomalies, risk factors and forecasts. It will tell you when something is unavailable."
-          />
-        ) : null}
+      {/* Messages Area */}
+      <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6 scroll-smooth">
+        {messages.length === 0 && !streamingText && (
+          <div className="h-full flex items-center justify-center">
+            <div className="max-w-md text-center">
+              <div className="w-16 h-16 bg-gradient-to-br from-cyan-400 to-blue-600 rounded-full flex items-center justify-center mx-auto mb-6 shadow-lg shadow-cyan-500/20">
+                <Sparkles size={32} className="text-white" />
+              </div>
+              <h3 className="text-xl font-bold text-slate-900 dark:text-white mb-2">How can I help?</h3>
+              <p className="text-sm text-slate-500 dark:text-slate-400 leading-relaxed">
+                I can analyze the current environmental state, explain risk factors, or summarize recent trends based strictly on the data collected by your sensors.
+              </p>
+            </div>
+          </div>
+        )}
 
         <AnimatePresence initial={false}>
           {messages.map((message, index) => (
@@ -173,125 +139,112 @@ export function ChatPanel({ deviceId, compact = false }: { deviceId?: string | n
           ))}
         </AnimatePresence>
 
-        {streamingText ? (
+        {streamingText && (
           <MessageBubble
-            message={{
-              role: "assistant",
-              content: streamingText,
-              createdAt: new Date().toISOString(),
-              streaming: true,
-              model: status?.model ?? null,
-            }}
+            message={{ role: "assistant", content: streamingText, createdAt: new Date().toISOString(), streaming: true, model: status?.model ?? null }}
           />
-        ) : null}
+        )}
 
-        {busy && !streamingText ? (
-          <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
-            <Spinner />
-            Building the data snapshot and querying the model...
-          </div>
-        ) : null}
+        {busy && !streamingText && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex items-center gap-3 text-xs font-medium text-slate-400 ml-12">
+            <Spinner /> Processing telemetry data...
+          </motion.div>
+        )}
 
-        {error ? (
-          <div className="flex items-start gap-2 rounded-xl border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
-            <AlertTriangle size={14} className="mt-0.5" />
-            <span>{error}</span>
+        {error && (
+          <div className="flex items-center gap-2 p-3 rounded-xl bg-rose-50 text-rose-600 dark:bg-rose-500/10 dark:text-rose-400 text-sm font-medium">
+            <AlertTriangle size={16} /> {error}
           </div>
-        ) : null}
+        )}
       </div>
 
-      {suggestions.length ? (
-        <div className="flex flex-wrap gap-1.5 border-t border-slate-200/80 pt-3 dark:border-slate-800/80">
-          {suggestions.map((question) => (
-            <button
-              key={question}
-              type="button"
-              disabled={busy}
-              onClick={() => void send(question)}
-              className="rounded-full border border-slate-200 px-3 py-1 text-[11px] text-slate-600 transition hover:border-cyan-500/50 hover:text-cyan-700 disabled:opacity-50 dark:border-slate-700 dark:text-slate-300 dark:hover:text-cyan-300"
-            >
-              {question}
-            </button>
-          ))}
-        </div>
-      ) : null}
+      {/* Input Area */}
+      <div className="p-4 bg-white dark:bg-surface-800 border-t border-slate-200/50 dark:border-white/5 rounded-b-2xl">
+        {suggestions.length > 0 && messages.length === 0 && (
+          <div className="flex flex-wrap gap-2 mb-4">
+            {suggestions.map(q => (
+              <button
+                key={q}
+                onClick={() => send(q)}
+                disabled={busy}
+                className="px-3 py-1.5 rounded-full text-xs font-medium bg-slate-100 text-slate-600 hover:bg-cyan-50 hover:text-cyan-700 dark:bg-surface-900 dark:text-slate-400 dark:hover:bg-cyan-500/10 dark:hover:text-cyan-300 transition-colors"
+              >
+                {q}
+              </button>
+            ))}
+          </div>
+        )}
 
-      <form
-        className="mt-3 flex items-end gap-2"
-        onSubmit={(event) => {
-          event.preventDefault();
-          void send(input);
-        }}
-      >
-        <textarea
-          value={input}
-          onChange={(event) => setInput(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter" && !event.shiftKey) {
-              event.preventDefault();
-              void send(input);
-            }
-          }}
-          rows={2}
-          placeholder="e.g. Why is the risk score high, and is it improving?"
-          className="min-h-[46px] flex-1 resize-none rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none transition focus:border-cyan-500/60 focus:ring-2 focus:ring-cyan-500/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
-        />
-        <button
-          type="submit"
-          disabled={busy || !input.trim()}
-          className="inline-flex h-[46px] items-center gap-1.5 rounded-xl bg-cyan-600 px-4 text-sm font-medium text-white transition hover:bg-cyan-500 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {busy ? <Spinner /> : <Send size={15} />}
-          Ask
-        </button>
-      </form>
+        <form onSubmit={e => { e.preventDefault(); send(input); }} className="relative flex items-end gap-2">
+          <textarea
+            value={input}
+            onChange={e => setInput(e.target.value)}
+            onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(input); } }}
+            rows={1}
+            placeholder="Ask about the environment..."
+            className="w-full bg-slate-50 dark:bg-surface-900 border border-slate-200/60 dark:border-white/10 rounded-2xl px-4 py-3.5 text-sm text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-cyan-500/50 focus:border-transparent transition-all resize-none min-h-[50px] max-h-[150px]"
+          />
+          <button
+            type="submit"
+            disabled={busy || !input.trim()}
+            className="absolute right-2 bottom-2 h-9 w-9 flex items-center justify-center rounded-xl bg-cyan-500 text-white hover:bg-cyan-600 disabled:opacity-50 disabled:hover:bg-cyan-500 transition-colors shadow-md shadow-cyan-500/20"
+          >
+            {busy ? <Spinner /> : <Send size={16} className="ml-0.5" />}
+          </button>
+        </form>
+      </div>
     </div>
   );
 }
 
 function MessageBubble({ message }: { message: ChatMessage }) {
   const isUser = message.role === "user";
+  
   return (
     <motion.div
-      initial={{ opacity: 0, y: 6 }}
+      initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
-      className={classNames("flex gap-2.5", isUser ? "flex-row-reverse" : "flex-row")}
+      className={classNames("flex gap-3", isUser ? "flex-row-reverse" : "flex-row")}
     >
-      <span
-        className={classNames(
-          "mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-lg",
-          isUser ? "bg-slate-900 text-white dark:bg-slate-700" : "bg-cyan-500/15 text-cyan-600 dark:text-cyan-300",
-        )}
-      >
-        {isUser ? <User size={14} /> : <Cpu size={14} />}
-      </span>
-      <div
-        className={classNames(
-          "max-w-[85%] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed",
-          isUser
-            ? "bg-slate-900 text-white dark:bg-slate-800"
-            : "border border-slate-200 bg-white text-slate-700 dark:border-slate-800 dark:bg-slate-900/70 dark:text-slate-200",
-        )}
-      >
-        <p className="whitespace-pre-wrap">{message.content}</p>
-        {message.streaming ? (
-          <span className="ml-0.5 inline-block h-3.5 w-1.5 animate-pulse bg-cyan-500 align-middle" />
-        ) : null}
-        <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[10px] text-slate-400">
-          <span>{relativeTime(message.createdAt)}</span>
-          {!isUser && message.model ? <span>model: {message.model}</span> : null}
-          {!isUser && message.warning ? <DataBadge source="analysis" /> : null}
-          {message.latencyMs ? <span>{message.latencyMs} ms</span> : null}
+      <div className={classNames(
+        "flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center shadow-sm mt-1",
+        isUser ? "bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900" : "bg-gradient-to-br from-cyan-400 to-blue-600 text-white"
+      )}>
+        {isUser ? <User size={14} strokeWidth={2.5} /> : <BrainCircuit size={16} strokeWidth={2.5} />}
+      </div>
+      
+      <div className="flex flex-col max-w-[85%]">
+        <div className={classNames(
+          "px-4 py-3 text-sm leading-relaxed",
+          isUser 
+            ? "bg-slate-800 text-white rounded-2xl rounded-tr-sm dark:bg-slate-200 dark:text-slate-900" 
+            : "bg-slate-100 text-slate-800 rounded-2xl rounded-tl-sm dark:bg-surface-900 dark:text-slate-200 shadow-sm border border-slate-200/50 dark:border-white/5"
+        )}>
+          <p className="whitespace-pre-wrap">{message.content}</p>
+          {message.streaming && <span className="ml-1 inline-block w-1.5 h-4 bg-cyan-500 animate-pulse align-middle" />}
         </div>
+        
+        <div className={classNames(
+          "flex items-center gap-2 mt-1.5 text-[10px] font-medium uppercase tracking-widest text-slate-400",
+          isUser ? "justify-end" : "justify-start ml-1"
+        )}>
+          <span>{relativeTime(message.createdAt)}</span>
+          {!isUser && message.model && <span>• {message.model}</span>}
+        </div>
+
         {message.citations?.length ? (
-          <ul className="mt-2 space-y-0.5 border-t border-slate-200/70 pt-1.5 dark:border-slate-800/70">
-            {message.citations.slice(0, 6).map((citation: ChatCitation) => (
-              <li key={`${citation.label}-${citation.value}`} className="text-[10px] text-slate-500 dark:text-slate-400">
-                <span className="font-medium text-slate-600 dark:text-slate-300">{citation.label}:</span>{" "}
-                {citation.value} <span className="opacity-70">· {citation.source}</span>
-              </li>
-            ))}
-          </ul>
+          <div className="mt-2 ml-1">
+            <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-cyan-600 dark:text-cyan-400 mb-1">
+              <Database size={10} /> Data Sources
+            </div>
+            <ul className="space-y-1">
+              {message.citations.slice(0, 4).map(cit => (
+                <li key={`${cit.label}-${cit.value}`} className="text-xs px-2 py-1 bg-slate-50 dark:bg-surface-900/50 rounded border border-slate-100 dark:border-white/5 inline-block mr-2 mb-1">
+                  <span className="font-semibold text-slate-600 dark:text-slate-300">{cit.label}:</span> <span className="text-slate-500 dark:text-slate-400">{cit.value}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
         ) : null}
       </div>
     </motion.div>

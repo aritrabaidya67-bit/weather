@@ -3,17 +3,30 @@
  *  Environmental Intelligence Platform - Arduino UNO R4 WiFi edge node
  * ===========================================================================
  *
- *  Sensors
- *    - DHT12 / AM2302   temperature + relative humidity   (D5 one-wire, DHT22 protocol)
- *    - BMP280           barometric pressure + temperature (I2C, 0x76)
+ *  Sensors - AUTHORITATIVE PIN MAP. This table, arduino/README.md,
+ *  docs/hardware.md and config.h must always agree; if they disagree, this
+ *  table and config.h win because they are what actually compiles.
+ *    - AM2302 / DHT22   temperature + relative humidity   (D2, one-wire)
+ *      or DHT12 (I2C)   temperature + relative humidity   (I2C 0x5C, SDA/SCL)
+ *                       - selected by TEMP_HUMIDITY_SENSOR in config.h
+ *    - BMP280           barometric pressure + temperature (I2C, 0x76/0x77)
  *    - Rain sensor      analog wetness                    (A0)
  *    - LDR              analog illumination               (A1)
  *    - MQ-135           analog air-quality                (A2)
  *
  *  Actuators
- *    - 5 LEDs           physical indicator of the BACKEND risk level 1..5
- *                       (LED 1 = level 1 "Very Low" ... LED 5 = level 5 "Critical")
- *    - 1 buzzer         pattern driven by the same backend assessment
+ *    - 5 LEDs           D3 D4 D5 D6 D7 = risk level 1..5. See updateLeds() for
+ *                       exactly which of them is lit for each level.
+ *    - 1 buzzer         D8, pattern driven by the same backend assessment
+ *
+ *  Note on the temperature/humidity sensor
+ *    The AM2302/DHT22 and the DHT12 do NOT share a protocol. A DHT12 in
+ *    one-wire mode speaks the DHT11-style frame (integer + decimal bytes) with
+ *    an ~18 ms wake-up, so reading it as DHT22 with the Adafruit DHT library
+ *    would produce garbage values rather than a clean error. This firmware
+ *    therefore supports exactly two explicit configurations and refuses the
+ *    invalid combination at compile time - it never pretends the two sensors
+ *    are interchangeable. See the selection block in config.h.
  *
  *  Data flow
  *    read sensors -> validate -> JSON payload -> HTTP POST (X-API-Key) ->
@@ -31,20 +44,22 @@
  *      sent as garbage data.
  *
  *  Required libraries (Arduino IDE -> Library Manager)
- *    - DHT sensor library (Adafruit)
+ *    - DHT sensor library (Adafruit)          [only when TEMP_HUMIDITY_SENSOR
+ *                                              == SENSOR_AM2302_DHT22]
  *    - Adafruit BMP280 Library  (+ Adafruit Unified Sensor, installed with it)
  *    - ArduinoJson (>= 7.0)
  *    WiFiS3 / Wire ship with the Arduino UNO R4 core and need no install.
  *
  *  IMPORTANT: this firmware has NOT been executed on physical hardware yet -
- *  the Arduino IDE/toolchain was unavailable while it was written. See
- *  arduino/README.md for the wiring checklist and the validation status.
+ *  the Arduino IDE/toolchain was unavailable where it was written. It is
+ *  statically reviewed and written to be UNO R4 WiFi (+ WiFiS3) correct, but
+ *  "compiles" and "reads the right values on a bench" are claims that require
+ *  the real toolchain and real sensors. See arduino/README.md.
  * ===========================================================================
  */
 
 #include <ArduinoJson.h>
 #include <Adafruit_BMP280.h>
-#include <DHT.h>
 #include <Wire.h>
 #include <WiFiS3.h>
 
@@ -59,6 +74,48 @@
 #define USING_TEMPLATE_CONFIG 1
 #endif
 
+/* The Adafruit DHT library is only pulled in for the AM2302/DHT22 build; the
+ * DHT12 is read directly over I2C (see readTempHumidity) and must not be fed to
+ * a DHT22 decoder. */
+#if TEMP_HUMIDITY_SENSOR == SENSOR_AM2302_DHT22
+#include <DHT.h>
+#elif TEMP_HUMIDITY_SENSOR == SENSOR_DHT12_I2C
+#else
+#error "TEMP_HUMIDITY_SENSOR must be SENSOR_AM2302_DHT22 or SENSOR_DHT12_I2C (see config.h)"
+#endif
+
+/* -------------------------------------------------------------------------- */
+/*  Compile-time pin-map verification                                          */
+/* -------------------------------------------------------------------------- */
+
+/* Every signal pin must be distinct: no LED may share a pin with another LED,
+ * with a sensor, or with the buzzer. A wiring table the compiler checks cannot
+ * silently drift away from the documentation. */
+namespace pincheck {
+constexpr uint8_t PINS[] = {PIN_RAIN_ANALOG, PIN_LDR_ANALOG, PIN_MQ135_ANALOG, PIN_LED_1,
+                            PIN_LED_2,       PIN_LED_3,       PIN_LED_4,        PIN_LED_5,
+                            PIN_BUZZER};
+constexpr size_t COUNT = sizeof(PINS) / sizeof(PINS[0]);
+constexpr bool allDistinct() {
+  for (size_t i = 0; i < COUNT; i++) {
+    for (size_t j = i + 1; j < COUNT; j++) {
+      if (PINS[i] == PINS[j]) return false;
+    }
+  }
+  return true;
+}
+constexpr bool dhtClear() {
+#if TEMP_HUMIDITY_SENSOR == SENSOR_AM2302_DHT22
+  for (size_t i = 0; i < COUNT; i++) {
+    if (PINS[i] == PIN_DHT) return false;
+  }
+#endif
+  return true;
+}
+static_assert(allDistinct(), "Pin conflict: two of rain/LDR/MQ-135/LEDs/buzzer share a pin");
+static_assert(dhtClear(), "Pin conflict: PIN_DHT collides with an LED or the buzzer pin");
+}  // namespace pincheck
+
 /* -------------------------------------------------------------------------- */
 /*  Runtime state                                                             */
 /* -------------------------------------------------------------------------- */
@@ -66,8 +123,14 @@
 namespace {
 
 WiFiClient httpClient;
-DHT dht(PIN_DHT, DHT_TYPE);
 Adafruit_BMP280 bmp;
+
+#if TEMP_HUMIDITY_SENSOR == SENSOR_AM2302_DHT22
+DHT dht(PIN_DHT, DHT_TYPE);
+#else
+/* The DHT12 speaks I2C at a fixed address; nothing but Wire is needed. */
+constexpr uint8_t DHT12_ADDRESS = DHT12_I2C_ADDRESS;
+#endif
 
 /* Forward declarations: the HTTP helpers call each other before their bodies. */
 int contentLengthOf(const String &raw);
@@ -78,7 +141,7 @@ const uint8_t LED_PINS[5] = {PIN_LED_1, PIN_LED_2, PIN_LED_3, PIN_LED_4, PIN_LED
 /* Latest valid readings. ``has*`` flags let us omit a failed channel instead of
  * transmitting a stale or fabricated number. */
 struct SensorValues {
-  bool hasDht = false;
+  bool hasTempHum = false;
   float temperatureC = NAN;
   float humidityPct = NAN;
 
@@ -129,6 +192,27 @@ uint8_t buzzerStep = 0;
 uint32_t buzzerStepStart = 0;
 uint32_t buzzerCycleStart = 0;
 bool buzzerOn = false;
+
+/* BUZZER_PASSIVE selects how "sound" is produced, and equally how silence is
+ * produced. An active buzzer module has its own oscillator, so plain HIGH is
+ * the correct drive and tone() is unnecessary; a passive piezo needs tone() at
+ * BUZZER_FREQUENCY_HZ because a static level makes no sound at all. Both paths
+ * are non-blocking: the pattern player below only flips state on millis(). */
+inline void buzzerStart() {
+#if BUZZER_PASSIVE
+  tone(PIN_BUZZER, BUZZER_FREQUENCY_HZ);
+#else
+  digitalWrite(PIN_BUZZER, HIGH);
+#endif
+}
+
+inline void buzzerStop() {
+#if BUZZER_PASSIVE
+  noTone(PIN_BUZZER);
+#else
+  digitalWrite(PIN_BUZZER, LOW);
+#endif
+}
 
 const char *modeName(BuzzerMode mode) {
   switch (mode) {
@@ -288,16 +372,51 @@ const char *airQualityStatus(int raw) {
   return "very poor";
 }
 
-void readDhtSensor() {
+/* Reads temperature + humidity from whichever sensor config.h selected.
+ *
+ * Both branches discard anything outside the physical window instead of sending
+ * it, and both set ``hasTempHum`` only when *both* values are usable - a
+ * half-valid pair would let the backend compute a heat index from one real and
+ * one stale number. */
+void readTempHumidity() {
+#if TEMP_HUMIDITY_SENSOR == SENSOR_AM2302_DHT22
   const float temperature = dht.readTemperature();
   const float humidity = dht.readHumidity();
+#else
+  /* DHT12 over I2C: 5 bytes starting at register 0x00 -
+   *   [0] humidity integer   [1] humidity decimal (tenths)
+   *   [2] temperature integer [3] temperature decimal, bit7 = negative sign
+   *   [4] checksum = (0x00+0x01+0x02+0x03) & 0xFF
+   * This is the DHT12's own protocol; decoding it as a DHT22 16-bit frame (as
+   * happens if you point the Adafruit library at it) would be wrong. */
+  float temperature = NAN;
+  float humidity = NAN;
+  Wire.beginTransmission(DHT12_ADDRESS);
+  Wire.write(static_cast<uint8_t>(0x00));
+  if (Wire.endTransmission(false) == 0 && Wire.requestFrom(DHT12_ADDRESS, 5) == 5) {
+    uint8_t bytes[5];
+    for (uint8_t i = 0; i < 5; i++) bytes[i] = static_cast<uint8_t>(Wire.read());
+    const uint8_t checksum = static_cast<uint8_t>(bytes[0] + bytes[1] + bytes[2] + bytes[3]);
+    if (bytes[4] == checksum) {
+      humidity = bytes[0] + bytes[1] * 0.1F;
+      temperature = bytes[2] + (bytes[3] & 0x7F) * 0.1F;
+      if (bytes[3] & 0x80) temperature = -temperature; /* sign lives in byte 3 */
+    } else {
+      /* A non-zero checksum means the I2C read was corrupted; leave both values
+       * NaN so the channel is reported missing rather than sending noise. */
+      return;
+    }
+  } else {
+    return;
+  }
+#endif
 
   const bool tempOk = !isnan(temperature) && temperature >= TEMP_MIN_C && temperature <= TEMP_MAX_C;
   const bool humidityOk = !isnan(humidity) && humidity >= HUMIDITY_MIN_PCT && humidity <= HUMIDITY_MAX_PCT;
 
   if (tempOk) sensors.temperatureC = temperature;
   if (humidityOk) sensors.humidityPct = humidity;
-  sensors.hasDht = tempOk && humidityOk;
+  sensors.hasTempHum = tempOk && humidityOk;
 }
 
 void readBmpSensor() {
@@ -326,20 +445,27 @@ bool readAnalogSensor(uint8_t pin, int &rawOut, const char *name) {
 }
 
 void readAllSensors() {
-  readDhtSensor();
+  readTempHumidity();
   readBmpSensor();
   sensors.hasRain = readAnalogSensor(PIN_RAIN_ANALOG, sensors.rainRaw, "rain");
   sensors.hasLight = readAnalogSensor(PIN_LDR_ANALOG, sensors.lightRaw, "light");
   sensors.hasAir = readAnalogSensor(PIN_MQ135_ANALOG, sensors.airRaw, "air_quality");
 
-  const bool anyOk = sensors.hasDht || sensors.hasBmp || sensors.hasRain || sensors.hasLight || sensors.hasAir;
+  const bool anyOk = sensors.hasTempHum || sensors.hasBmp || sensors.hasRain || sensors.hasLight ||
+                     sensors.hasAir;
   if (anyOk) {
     sensorFailures = 0;
   } else {
     sensorFailures++;
-    logError(String("No sensor produced a valid reading (failure ") + sensorFailures + " of " +
+    logError(String("No sensor produced a valid reading (cycle ") + sensorFailures + " of " +
              SENSOR_FAILURE_LIMIT + ")");
   }
+}
+
+/* True when the payload would carry at least one real measurement. Transmitting
+ * an empty payload would only earn an HTTP 422 from the backend. */
+bool haveAnyReading() {
+  return sensors.hasTempHum || sensors.hasBmp || sensors.hasRain || sensors.hasLight || sensors.hasAir;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -366,7 +492,7 @@ void buildPayload(JsonDocument &doc) {
   const String timestamp = currentTimestampIso();
   if (timestamp.length() > 0) doc["timestamp"] = timestamp;
 
-  if (sensors.hasDht) {
+  if (sensors.hasTempHum) {
     doc["temperature_c"] = serialized(String(sensors.temperatureC, 1));
     doc["humidity_pct"] = serialized(String(sensors.humidityPct, 1));
   }
@@ -390,7 +516,7 @@ void buildPayload(JsonDocument &doc) {
    * missing" from "value was zero". */
   JsonArray available = doc["sensors_available"].to<JsonArray>();
   JsonArray missing = doc["sensors_missing"].to<JsonArray>();
-  if (sensors.hasDht) {
+  if (sensors.hasTempHum) {
     available.add("temperature_c");
     available.add("humidity_pct");
   } else {
@@ -423,13 +549,31 @@ bool waitForWifi(uint32_t timeoutMs) {
 }
 
 /* Opens a TCP connection to the backend with a deadline. */
+uint16_t backendConnectFailures = 0;
+
 bool connectBackend() {
   if (WiFi.status() != WL_CONNECTED) return false;
   if (httpClient.connected()) return true;
   httpClient.setTimeout(HTTP_TIMEOUT_MS);
   if (!httpClient.connect(BACKEND_HOST, BACKEND_PORT)) {
-    logWarn(String("Cannot open TCP connection to ") + BACKEND_HOST + ":" + BACKEND_PORT);
+    backendConnectFailures++;
+    /* Log the first failure in full and then every tenth one: a node that has
+     * been offline overnight must not fill the serial buffer with the same line
+     * 5760 times, but the condition must stay visible. */
+    if (backendConnectFailures == 1 || backendConnectFailures % 10 == 0) {
+      char failureBuffer[192];
+      snprintf(failureBuffer, sizeof(failureBuffer),
+               "Cannot open TCP connection to %s:%d (failure %u). Check that BACKEND_HOST is "
+               "the PC's LAN IP (never localhost/127.0.0.1), that both devices share one "
+               "network, and that the firewall allows inbound TCP on that port.",
+               BACKEND_HOST, BACKEND_PORT, static_cast<unsigned>(backendConnectFailures));
+      logWarn(String(failureBuffer));
+    }
     return false;
+  }
+  if (backendConnectFailures) {
+    logInfo(String("Backend reachable again after ") + backendConnectFailures + " failures");
+    backendConnectFailures = 0;
   }
   return true;
 }
@@ -509,7 +653,10 @@ void applyRiskState(const JsonDocument &doc) {
     buzzerMode = modeFromPattern(buzzerPattern);
     buzzerStep = 0;
     buzzerCycleStart = millis();
-    if (buzzerMode == BuzzerMode::Silent) noTone(PIN_BUZZER);
+    if (buzzerMode == BuzzerMode::Silent) {
+      buzzerStop();
+      buzzerOn = false;
+    }
     logInfo(String("Buzzer pattern: ") + buzzerPattern);
   }
   syncClockFrom(doc["server_time"] | "");
@@ -680,7 +827,7 @@ void updateBuzzer() {
 
   if (buzzerMode == BuzzerMode::Silent) {
     if (buzzerOn) {
-      noTone(PIN_BUZZER);
+      buzzerStop();
       buzzerOn = false;
     }
     return;
@@ -709,7 +856,7 @@ void updateBuzzer() {
     if (buzzerStep >= static_cast<uint8_t>(beepsPerCycle * 2U)) {
       buzzerStep = 0;
       if (buzzerOn) {
-        noTone(PIN_BUZZER);
+        buzzerStop();
         buzzerOn = false;
       }
       return;
@@ -718,10 +865,10 @@ void updateBuzzer() {
 
   const bool shouldSound = (buzzerStep % 2U == 0U);
   if (shouldSound && !buzzerOn) {
-    tone(PIN_BUZZER, BUZZER_FREQUENCY_HZ);
+    buzzerStart();
     buzzerOn = true;
   } else if (!shouldSound && buzzerOn) {
-    noTone(PIN_BUZZER);
+    buzzerStop();
     buzzerOn = false;
   }
 }
@@ -730,25 +877,55 @@ void updateBuzzer() {
 /*  Wi-Fi                                                                     */
 /* -------------------------------------------------------------------------- */
 
-void connectWifi() {
-  if (WiFi.status() == WL_CONNECTED) return;
-  if (millis() - lastWifiAttemptAt < WIFI_RETRY_INTERVAL_MS) return;
-  lastWifiAttemptAt = millis();
+/* Non-blocking Wi-Fi association state machine.
+ *
+ * Calling WiFi.begin() again on every loop pass is a classic WiFiS3 bug: each
+ * call restarts the association attempt, so the radio never gets the several
+ * seconds it needs and the node stays offline forever. Instead we start an
+ * attempt, then only poll; a new attempt is made only after
+ * WIFI_ASSOC_TIMEOUT_MS has elapsed without success, or after a drop. */
+uint32_t wifiAttemptStartedAt = 0;
+bool wifiAttemptInFlight = false;
 
-  wifiDownSince = wifiDownSince == 0 ? millis() : wifiDownSince;
+void logWifiAddress() {
+  IPAddress ip = WiFi.localIP();
+  char ipBuffer[16];
+  snprintf(ipBuffer, sizeof(ipBuffer), "%u.%u.%u.%u", ip[0], ip[1], ip[2], ip[3]);
+  logInfo(String("Wi-Fi connected. IP ") + ipBuffer + " RSSI " + WiFi.RSSI() + " dBm");
+  logInfo(String("Posting to http://") + BACKEND_HOST + ":" + BACKEND_PORT + BACKEND_PATH);
+}
+
+/* Starts one association attempt. Returns immediately; the caller polls. */
+void startWifiAttempt() {
   logInfo("Connecting to Wi-Fi '" WIFI_SSID "' ...");
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  wifiAttemptStartedAt = millis();
+  lastWifiAttemptAt = wifiAttemptStartedAt;
+  wifiAttemptInFlight = true;
+}
 
-  const int status = WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-  if (status == WL_CONNECTED && waitForWifi(HTTP_TIMEOUT_MS)) {
-    IPAddress ip = WiFi.localIP();
-    char ipBuffer[16];
-    snprintf(ipBuffer, sizeof(ipBuffer), "%u.%u.%u.%u", ip[0], ip[1], ip[2], ip[3]);
-    logInfo(String("Wi-Fi connected. IP ") + ipBuffer + " RSSI " + WiFi.RSSI() + " dBm");
-    logInfo(String("Posting to http://") + BACKEND_HOST + ":" + BACKEND_PORT + BACKEND_PATH);
+void connectWifi() {
+  const uint32_t now = millis();
+
+  if (WiFi.status() == WL_CONNECTED) {
+    if (wifiAttemptInFlight || wifiDownSince != 0) logWifiAddress();
     wifiDownSince = 0;
+    wifiAttemptInFlight = false;
     return;
   }
-  logWarn("Wi-Fi not connected yet (status " + String(status) + ") - will retry");
+
+  if (wifiDownSince == 0) wifiDownSince = now;
+
+  if (wifiAttemptInFlight) {
+    if (now - wifiAttemptStartedAt < WIFI_ASSOC_TIMEOUT_MS) return; /* keep waiting */
+    logWarn(String("Wi-Fi association timed out after ") + (WIFI_ASSOC_TIMEOUT_MS / 1000UL) +
+            " s (status " + String(WiFi.status()) + ") - restarting the attempt");
+    wifiAttemptInFlight = false;
+    WiFi.disconnect();
+  }
+
+  if (now - lastWifiAttemptAt < WIFI_RETRY_INTERVAL_MS) return;
+  startWifiAttempt();
 }
 
 }  // namespace
@@ -775,20 +952,51 @@ void setup() {
     writeLed(i, false);
   }
   pinMode(PIN_BUZZER, OUTPUT);
-  noTone(PIN_BUZZER);
+  buzzerStop();
 
-  /* Lamp test: proves every LED and the buzzer are wired correctly. */
+  /* Lamp test: proves every LED and the buzzer are wired correctly. It lights
+   * the LEDs one at a time (each is switched off before the next comes on) so a
+   * shorted pair is obvious rather than hidden behind the cumulative display
+   * used during normal operation. */
   for (uint8_t i = 0; i < 5; i++) {
+    allLedsOff();
     writeLed(i, true);
     delay(120);
   }
-  for (uint8_t i = 0; i < 5; i++) writeLed(i, false);
-  tone(PIN_BUZZER, BUZZER_FREQUENCY_HZ, 150);
-  delay(200);
+  allLedsOff();
+  buzzerStart();
+  delay(150);
+  buzzerStop();
+  delay(50);
 
-  dht.begin();
+#if TEMP_HUMIDITY_SENSOR == SENSOR_AM2302_DHT22
+  {
+    dht.begin();
+    char sensorBuffer[96];
+    snprintf(sensorBuffer, sizeof(sensorBuffer),
+             "Temperature/humidity sensor: AM2302/DHT22 on D%d (one-wire, DHT22 frame)",
+             PIN_DHT);
+    logInfo(String(sensorBuffer));
+  }
+#else
+  {
+    char sensorBuffer[96];
+    snprintf(sensorBuffer, sizeof(sensorBuffer),
+             "Temperature/humidity sensor: DHT12 on I2C address 0x%02X (SDA/SCL)",
+             DHT12_I2C_ADDRESS);
+    logInfo(String(sensorBuffer));
+  }
+#endif
 
   Wire.begin();
+#if TEMP_HUMIDITY_SENSOR == SENSOR_DHT12_I2C
+  /* Fail loudly at boot: a DHT12 that does not answer on the bus is a wiring
+   * problem, and silently reporting "no temperature" for hours is worse. */
+  Wire.beginTransmission(DHT12_ADDRESS);
+  if (Wire.endTransmission() != 0) {
+    logError("DHT12 did not acknowledge on the I2C bus - check SDA/SCL and the 3V3 supply");
+  }
+#endif
   if (bmp.begin(BMP280_I2C_ADDRESS)) {
     /* Indoor monitoring: local pressure is what matters, not sea-level. */
     bmp.setSampling(Adafruit_BMP280::MODE_NORMAL,
@@ -802,13 +1010,27 @@ void setup() {
   }
 
   analogReadResolution(10); /* 0..1023, matching the backend calibration */
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-  waitForWifi(8000);
-  if (WiFi.status() == WL_CONNECTED) {
-    IPAddress ip = WiFi.localIP();
-    char ipBuffer[16];
-    snprintf(ipBuffer, sizeof(ipBuffer), "%u.%u.%u.%u", ip[0], ip[1], ip[2], ip[3]);
-    logInfo(String("Wi-Fi connected on boot. IP ") + ipBuffer);
+
+  /* Report the pin map once at boot: this is the wiring the firmware actually
+   * compiled with, so bench bring-up is a matter of comparing two lines instead
+   * of reading the sketch. A0 is 14 on the UNO R4, so the channel is printed as
+   * A0/A1/A2 the way the wiring table names it. */
+  {
+    char pinBuffer[128];
+    snprintf(pinBuffer, sizeof(pinBuffer),
+             "Pin map: rain=A%d light=A%d air=A%d LEDs=D%d/D%d/D%d/D%d/D%d buzzer=D%d %s",
+             PIN_RAIN_ANALOG - A0, PIN_LDR_ANALOG - A0, PIN_MQ135_ANALOG - A0, PIN_LED_1,
+             PIN_LED_2, PIN_LED_3, PIN_LED_4, PIN_LED_5, PIN_BUZZER,
+             LED_ACTIVE_HIGH ? "(LEDs active-high)" : "(LEDs active-low)");
+    logInfo(String(pinBuffer));
+  }
+
+  /* One bounded attempt at boot so the first reading can be posted promptly;
+   * the non-blocking state machine in the main loop owns it from then on. */
+  startWifiAttempt();
+  if (waitForWifi(8000)) {
+    logWifiAddress();
+    wifiAttemptInFlight = false;
   } else {
     logWarn("Wi-Fi unavailable at boot - the main loop keeps retrying");
   }
@@ -832,8 +1054,15 @@ void loop() {
     lastSendAt = now;
     readAllSensors();
 
-    if (sensorFailures >= SENSOR_FAILURE_LIMIT) {
-      logError("Skipping transmission: no valid sensor readings this cycle");
+    if (!haveAnyReading()) {
+      /* Nothing usable came back: an empty payload would only be rejected with
+       * HTTP 422, so the node stays quiet and says exactly what is wrong. */
+      logError(String("Skipping transmission: no valid sensor readings this cycle (failure ") +
+               sensorFailures + " of " + SENSOR_FAILURE_LIMIT + ")");
+      if (sensorFailures >= SENSOR_FAILURE_LIMIT) {
+        logError("Check sensor power and wiring: every channel has been unavailable for " +
+                 String(SENSOR_FAILURE_LIMIT) + " consecutive cycles");
+      }
     } else {
       sequence++;
       if (postReading()) {

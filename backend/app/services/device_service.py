@@ -111,7 +111,7 @@ class DeviceService:
             device.transmission_interval_ms = reading.transmission_interval_ms
         if reading.sequence is not None:
             device.last_sequence = reading.sequence
-        device.notes = None
+        device.offline_flag = None
         self.session.flush()
 
     def note_rejected(self, device_id: str, reason: str) -> None:
@@ -130,6 +130,34 @@ class DeviceService:
         age = (now - last).total_seconds()
         return age <= self.settings.device_online_threshold_seconds, age
 
+    def _expected_interval(self, device: Device) -> float:
+        """Seconds we expect between payloads for this device."""
+        if device.transmission_interval_ms:
+            return max(1.0, device.transmission_interval_ms / 1000.0)
+        return self.settings.expected_transmission_interval_seconds
+
+    def _device_notes(self, device: Device, online: bool) -> list[str]:
+        """Human-readable notes for the API.
+
+        This is the single source of truth for ``DeviceOut.notes``; it is shared
+        by ``status()`` and ``list_devices()`` so both endpoints always agree.
+        """
+        notes: list[str] = []
+        if not online:
+            notes.append(
+                "No payload received within the expected interval "
+                f"({self._expected_interval(device):.0f} s). "
+                "Check power, Wi-Fi and the backend address."
+            )
+        missing = list(device.sensors_missing or [])
+        if missing:
+            notes.append(
+                "Sensors with no recent values: "
+                + ", ".join(missing)
+                + ". Check wiring/power for those sensors."
+            )
+        return notes
+
     def status(self, device_id: str, *, include_sensor_health: bool = True) -> dict[str, Any]:
         from .analytics_service import AnalyticsService
 
@@ -142,27 +170,14 @@ class DeviceService:
         sensor_health = (
             AnalyticsService(self.session).sensor_health(device_id) if include_sensor_health else []
         )
-        expected_interval = self.settings.expected_transmission_interval_seconds
-        if device.transmission_interval_ms:
-            expected_interval = max(1.0, device.transmission_interval_ms / 1000.0)
+        expected_interval = self._expected_interval(device)
         delivered = device.total_readings
         expected_readings = delivered + max(0, device.missed_intervals)
         delivery_rate = (
             round(delivered / expected_readings * 100, 2) if expected_readings else None
         )
-        notes: list[str] = []
-        if not online:
-            notes.append(
-                "No payload received within the expected interval "
-                f"({expected_interval:.0f} s). Check power, Wi-Fi and the backend address."
-            )
+        notes = self._device_notes(device, online)
         missing = list(device.sensors_missing or [])
-        if missing:
-            notes.append(
-                "Sensors with no recent values: "
-                + ", ".join(missing)
-                + ". Check wiring/power for those sensors."
-            )
         return {
             "device_id": device.device_id,
             "display_name": device.display_name,
@@ -260,10 +275,30 @@ class DeviceService:
         out = []
         for device in devices:
             online, age = self._online(device, now)
-            payload = device.as_dict(online, round(age, 1) if age is not None else None)
+            payload = device.as_dict(
+                online,
+                round(age, 1) if age is not None else None,
+                notes=self._device_notes(device, online),
+            )
             payload["rssi_quality"] = rssi_quality(device.rssi)
             payload["uptime_human"] = humanize_uptime(device.uptime_ms)
             payload["status"] = "online" if online else "offline"
+            payload["status_message"] = (
+                "Receiving data normally."
+                if online
+                else "Waiting for the Arduino UNO R4 Wi-Fi to send sensor data."
+            )
+            payload["expected_interval_seconds"] = self._expected_interval(device)
+            payload["transmission_interval_seconds"] = (
+                round(device.transmission_interval_ms / 1000.0, 2)
+                if device.transmission_interval_ms
+                else None
+            )
+            delivered = device.total_readings
+            expected_readings = delivered + max(0, device.missed_intervals)
+            payload["estimated_delivery_rate_pct"] = (
+                round(delivered / expected_readings * 100, 2) if expected_readings else None
+            )
             out.append(payload)
         if not out:
             out.append(self._virtual_status(self.settings.device_id, now))
@@ -294,9 +329,9 @@ class DeviceService:
             online, age = self._online(device, now)
             if online or age is None:
                 continue
-            if device.notes == "OFFLINE_FLAGGED":
+            if device.offline_flag == "OFFLINE_FLAGGED":
                 continue
-            device.notes = "OFFLINE_FLAGGED"
+            device.offline_flag = "OFFLINE_FLAGGED"
             transitions.append({"device_id": device.device_id, "age_seconds": age})
             logger.warning("device_went_offline", device_id=device.device_id, age_seconds=round(age, 1))
             bus.publish(
@@ -314,6 +349,6 @@ class DeviceService:
 
     def mark_online(self, device_id: str) -> None:
         device = self.repository.get(device_id)
-        if device is not None and device.notes == "OFFLINE_FLAGGED":
-            device.notes = None
+        if device is not None and device.offline_flag == "OFFLINE_FLAGGED":
+            device.offline_flag = None
             self.session.flush()

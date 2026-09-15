@@ -935,8 +935,7 @@ class AnalyticsService:
             "status_message": (
                 "Receiving data normally."
                 if online
-                else device.notes
-                or "No payload received recently. Check power, Wi-Fi and the backend port."
+                else "No payload received recently. Check power, Wi-Fi and the backend port."
             ),
             "last_seen_at": last_payload.isoformat() if last_payload else None,
             "seconds_since_last_payload": round(age, 1) if age is not None else None,

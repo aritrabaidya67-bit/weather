@@ -55,6 +55,23 @@ export function SectionHeader({
   );
 }
 
+export function SectionHeaderPill({
+  title,
+  icon,
+  className,
+}: {
+  title: string;
+  icon?: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div className={classNames("inline-flex items-center gap-2 rounded-full border border-slate-200/50 bg-slate-50/50 px-3 py-1.5 text-xs font-bold uppercase tracking-widest text-slate-500 shadow-sm dark:border-white/5 dark:bg-surface-900/50 dark:text-slate-400", className)}>
+      {icon ? <span className="shrink-0 text-cyan-500">{icon}</span> : null}
+      {title}
+    </div>
+  );
+}
+
 export function Chip({
   children,
   severity = "unknown",
@@ -297,9 +314,9 @@ export function Skeleton({ className }: { className?: string }) {
   return <div className={classNames("skeleton", className)} />;
 }
 
-export function CardSkeleton() {
+export function CardSkeleton({ className }: { className?: string }) {
   return (
-    <div className="panel space-y-3 p-5">
+    <div className={classNames("panel space-y-3 p-5", className)}>
       <Skeleton className="h-4 w-24" />
       <Skeleton className="h-8 w-32" />
       <Skeleton className="h-10 w-full" />

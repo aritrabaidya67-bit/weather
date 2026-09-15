@@ -6,8 +6,15 @@ Base URL `http://<host>:8000/api/v1` · interactive docs at `/docs` · schema at
 
 * **Auth** — device/write endpoints require the header `X-API-Key: <API_KEY>`.
   Read endpoints are open by default; set `REQUIRE_AUTH_FOR_READS=true` to
-  require the same header everywhere. Missing key → `401`, wrong key → `403`,
-  no key configured on the server → `503`.
+  require the same header everywhere. A missing **or** wrong key → `401` with
+  `WWW-Authenticate: X-API-Key` (the server never distinguishes the two to the
+  caller, and the comparison is constant-time). A server whose `API_KEY` is
+  unset, still a template value, shorter than 16 characters or obviously weak →
+  `503`, naming the reason, rather than accepting a key anyone could forge.
+* **CORS** — only the origins listed in `CORS_ORIGINS` may call the API from a
+  browser; a `*` entry is ignored rather than honoured. `CORS_ALLOW_LAN_ORIGINS=true`
+  additionally accepts private-range origins (RFC1918) for a same-network demo.
+  `allow_credentials` is off: there is no cookie or session auth to leak.
 * **Errors** — `{"success": false, "error": "...", "detail": "...", "timestamp": "..."}`.
   Validation failures return FastAPI's `422` with the offending field.
 * **Timestamps** — UTC ISO-8601 everywhere. `timestamp` is when the device says

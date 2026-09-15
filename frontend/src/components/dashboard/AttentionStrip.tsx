@@ -1,10 +1,10 @@
 /**
- * Attention strip — everything that needs a human, one line each.
- *
- * Severity is carried by a dot (shape+colour), the label, and ordering, so a
- * critical item reads as critical without a wall of warning text.
+ * Attention strip — prioritizing events clearly.
+ * 
+ * Re-styled for premium aesthetics and clarity.
  */
 
+import { motion } from "framer-motion";
 import { AlertTriangle, ArrowRight, CheckCircle2, Sparkles } from "lucide-react";
 import { Link } from "react-router-dom";
 import type { Alert, Anomaly } from "../../types";
@@ -37,55 +37,78 @@ export function AttentionStrip({
 
   if (!rows.length) {
     return (
-      <section className="panel flex items-center gap-2.5 p-4 text-sm text-slate-500 dark:text-slate-400">
-        <CheckCircle2 size={16} className="text-emerald-500" aria-hidden />
-        <span className="font-medium text-slate-700 dark:text-slate-200">Nothing needs attention</span>
-        <span className="hidden text-[11px] sm:inline">no active alerts or anomalies</span>
-      </section>
+      <motion.section 
+        className="panel-muted flex items-center justify-between p-4"
+        initial={{ opacity: 0, y: -10 }}
+        animate={{ opacity: 1, y: 0 }}
+      >
+        <div className="flex items-center gap-3">
+          <div className="grid h-8 w-8 place-items-center rounded-full bg-emerald-500/10 text-emerald-500 dark:bg-emerald-400/10 dark:text-emerald-400">
+            <CheckCircle2 size={16} strokeWidth={2.5} />
+          </div>
+          <div>
+            <p className="text-sm font-semibold tracking-wide text-slate-800 dark:text-slate-200">Everything looks good</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400">No active alerts or anomalies detected.</p>
+          </div>
+        </div>
+      </motion.section>
     );
   }
 
   return (
-    <section className="panel p-4">
-      <SectionHeaderPill
-        icon={<AlertTriangle size={14} />}
-        title="Needs attention"
-        meta={`${rows.length} item${rows.length === 1 ? "" : "s"}`}
-        action={
-          <Link
-            to="/alerts"
-            className="inline-flex items-center gap-1 text-[11px] font-medium text-cyan-600 hover:underline dark:text-cyan-300"
+    <motion.section 
+      className="panel p-5"
+      initial={{ opacity: 0, y: -10 }}
+      animate={{ opacity: 1, y: 0 }}
+    >
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
+        <SectionHeaderPill
+          icon={<AlertTriangle size={14} strokeWidth={2.5} />}
+          title="Needs Attention"
+          meta={`${rows.length} item${rows.length === 1 ? "" : "s"}`}
+        />
+        <Link
+          to="/alerts"
+          className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-widest text-rose-600 transition-colors hover:text-rose-700 dark:text-rose-400 dark:hover:text-rose-300"
+        >
+          View All <ArrowRight size={12} strokeWidth={2.5} />
+        </Link>
+      </div>
+
+      <ul className="space-y-2">
+        {rows.map((row, index) => (
+          <motion.li 
+            key={row.key}
+            initial={{ opacity: 0, x: -10 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ delay: index * 0.1 }}
           >
-            all alerts <ArrowRight size={11} aria-hidden />
-          </Link>
-        }
-      />
-      <ul className="mt-3 space-y-1.5">
-        {rows.map((row) => (
-          <li key={row.key}>
             <Link
               to={row.to}
               className={classNames(
-                "flex items-center gap-2.5 rounded-xl border px-3 py-2 transition-colors",
-                ALERT_CLASSES[row.severity] ?? ALERT_CLASSES.info,
+                "group flex items-center gap-3 rounded-2xl border px-4 py-3 transition-all hover:-translate-y-0.5 hover:shadow-md",
+                ALERT_CLASSES[row.severity] ?? ALERT_CLASSES.info
               )}
             >
-              <span className="mt-0.5 h-1.5 w-1.5 shrink-0 rounded-full bg-current" aria-hidden />
-              <span className="min-w-0 flex-1">
-                <span className="flex items-baseline gap-2">
-                  <span className="truncate text-[13px] font-medium">{row.title}</span>
-                  <span className="ml-auto shrink-0 text-[10px] opacity-70">{row.meta}</span>
-                </span>
-              </span>
+              <div className="flex h-2 w-2 shrink-0 items-center justify-center rounded-full bg-current">
+                {row.severity === 'critical' && (
+                  <span className="absolute h-4 w-4 animate-ping rounded-full bg-current opacity-40" />
+                )}
+              </div>
+              <div className="flex min-w-0 flex-1 flex-col sm:flex-row sm:items-baseline sm:justify-between gap-1 sm:gap-4">
+                <span className="truncate text-sm font-bold tracking-wide">{row.title}</span>
+                <span className="shrink-0 text-[11px] font-medium opacity-70 uppercase tracking-wider">{row.meta}</span>
+              </div>
             </Link>
-          </li>
+          </motion.li>
         ))}
       </ul>
-      {anomalies.length > 0 ? (
-        <p className="mt-2 flex items-center gap-1 text-[11px] text-slate-400">
-          <Sparkles size={11} aria-hidden /> anomalies are flagged against each sensor's rolling baseline
+      
+      {anomalies.length > 0 && (
+        <p className="mt-3 flex items-center justify-center sm:justify-start gap-1.5 text-[11px] font-medium text-slate-400">
+          <Sparkles size={12} /> Anomalies flagged against rolling baselines
         </p>
-      ) : null}
-    </section>
+      )}
+    </motion.section>
   );
 }

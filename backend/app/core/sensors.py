@@ -8,8 +8,15 @@ the analytics engine and the frontend metadata endpoint cannot drift apart.
 Sources for the physical ranges below (kept deliberately conservative and
 documented so no fabricated precision is introduced):
 
-* DHT12 / AM2302 (temperature): -40..80 C, accuracy ~ +-0.5 C, resolution 0.1 C
-* DHT12 / AM2302 (humidity):     0..100 %RH, accuracy ~ +-2..5 %RH
+* AM2302 / DHT22 (temperature): -40..80 C, accuracy ~ +-0.5 C, resolution 0.1 C
+* AM2302 / DHT22 (humidity):     0..100 %RH, accuracy ~ +-2..5 %RH
+
+Sensor identity note: the firmware supports an **AM2302/DHT22** (one-wire, DHT22
+frame) or a **DHT12 wired in I2C mode**. It deliberately does not support a DHT12
+on a one-wire pin, because that uses the DHT11-style frame (integer + decimal
+bytes) rather than the DHT22 frame and would decode to wrong values. The ranges
+above describe the AM2302/DHT22 default, which is what `arduino/config.h` and
+`docs/hardware.md` document.
 * BMP280 (pressure):             300..1100 hPa, accuracy ~ +-1 hPa
 * Rain sensor (analog):          10-bit ADC -> 0..1023 raw counts
                                   (dry ~ 900-1023, wet ~ 300-700, soaked < 300)
@@ -103,7 +110,7 @@ REGISTRY: dict[str, SensorSpec] = {
         maximum=85.0,
         decimals=1,
         color="#f97316",
-        description="Ambient air temperature measured by the DHT12 / AM2302 sensor.",
+        description="Ambient air temperature measured by the AM2302/DHT22 sensor.",
         plausible_delta_per_min=2.5,
         bands=(
             InterpretationBand(0.0, "freezing", "warning"),
@@ -115,7 +122,7 @@ REGISTRY: dict[str, SensorSpec] = {
             InterpretationBand(100.0, "extreme heat", "critical"),
         ),
         aliases=("temperature_dht", "temperature", "temp", "temp_c", "dht_temperature_c"),
-        calibration_notes="DHT12/AM2302 digital output; typical accuracy +-0.5 degC.",
+        calibration_notes="AM2302/DHT22 digital output; typical accuracy +-0.5 degC.",
     ),
     "humidity_pct": SensorSpec(
         key="humidity_pct",
@@ -126,7 +133,7 @@ REGISTRY: dict[str, SensorSpec] = {
         maximum=100.0,
         decimals=1,
         color="#38bdf8",
-        description="Relative humidity measured by the DHT12 / AM2302 sensor.",
+        description="Relative humidity measured by the AM2302/DHT22 sensor.",
         plausible_delta_per_min=5.0,
         bands=(
             InterpretationBand(20.0, "very dry", "watch"),
@@ -137,7 +144,7 @@ REGISTRY: dict[str, SensorSpec] = {
             InterpretationBand(100.0, "saturated", "critical"),
         ),
         aliases=("humidity", "rh", "relative_humidity", "humidity_percent"),
-        calibration_notes="DHT12/AM2302 digital output; typical accuracy +-2..5 %RH.",
+        calibration_notes="AM2302/DHT22 digital output; typical accuracy +-2..5 %RH.",
     ),
     "bmp_temperature_c": SensorSpec(
         key="bmp_temperature_c",
@@ -277,7 +284,7 @@ CHANNELS: dict[str, dict[str, object]] = {
         "label": "Temperature",
         "primary": "temperature_c",
         "secondary": ["bmp_temperature_c"],
-        "sensor": "DHT12 / AM2302 + BMP280",
+        "sensor": "AM2302/DHT22 + BMP280",
         "icon": "thermometer",
     },
     "humidity": {
@@ -285,7 +292,7 @@ CHANNELS: dict[str, dict[str, object]] = {
         "label": "Humidity",
         "primary": "humidity_pct",
         "secondary": [],
-        "sensor": "DHT12 / AM2302",
+        "sensor": "AM2302/DHT22",
         "icon": "droplets",
     },
     "pressure": {

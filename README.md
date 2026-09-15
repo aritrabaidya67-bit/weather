@@ -8,7 +8,7 @@ reasons over the platform's own data through a **local Ollama** model.
 ```
                  ┌──────────────────────────────┐
                  │        PHYSICAL SENSORS       │
-                 │ DHT12/AM2302  rain   LDR      │
+                 │ AM2302/DHT22  rain   LDR      │
                  │ BMP280        MQ-135          │
                  └───────────────┬──────────────┘
                                  │
@@ -39,14 +39,18 @@ reasons over the platform's own data through a **local Ollama** model.
 
 | Component | Status |
 | --- | --- |
-| FastAPI backend (77 tests) | **Executed — PASS** (`pytest`, plus live smoke tests against a running server) |
-| Frontend (React 19 + TS + Vite) | **Executed — PASS** (`tsc -b && vite build`, plus live browser checks) |
+| FastAPI backend | **Executed — PASS** (`pytest`, plus live smoke tests against a running server) |
+| Frontend (React 19 + TS + Vite) | **Executed — PASS** (`npm run typecheck`, `npm run build`) |
 | Database, analytics, risk, anomalies, prediction, alerts | **Executed — PASS** |
-| Chatbot against the local Ollama model | **Executed — PASS** (real grounded answers, verified values match the stored readings) |
-| Arduino firmware | **Code-reviewed only — NOT run on hardware** (no Arduino IDE / toolchain available) |
+| Realtime WebSocket + SSE | **Executed — PASS** |
+| Chatbot | **Executed — PASS with a stubbed model**; a real grounded answer requires the local Ollama server to be running |
+| Arduino firmware — static compilation, both sensor configs, pin-conflict guard | **Executed — PASS** (`bash arduino/static_check/run.sh`) |
+| Arduino firmware — Arduino IDE compile, real sensors, LEDs, buzzer, Wi-Fi | **NOT DONE** — no Arduino IDE / toolchain available |
 
-The Arduino firmware is production-shaped but has never been downloaded to a
-board. Treat first-flash bring-up as a real task, not a formality.
+Two things are deliberately *not* claimed. The firmware has never been compiled
+with the UNO R4 toolchain nor downloaded to a board, and the chatbot's answers
+are verified against a stubbed model rather than a live Ollama instance. Treat
+first-flash bring-up and a live Ollama check as real tasks, not formalities.
 
 ## Repository layout
 
@@ -99,9 +103,17 @@ cp config.example.h config.h     # git-ignored: Wi-Fi + API key live here
 ```
 
 Set `WIFI_SSID`, `WIFI_PASSWORD`, `BACKEND_HOST` (the PC's LAN IP — **never**
-`localhost`), `BACKEND_PORT`, `API_KEY` (same value as `backend/.env`) and
-`DEVICE_ID`. Then flash `environmental_monitor.ino` to an UNO R4 WiFi with the
-Arduino IDE 2.x and watch the serial monitor at 115200 baud.
+`localhost`), `BACKEND_PORT`, `API_KEY` (same value as `backend/.env`),
+`DEVICE_ID` and `TEMP_HUMIDITY_SENSOR` (`SENSOR_AM2302_DHT22` by default; use
+`SENSOR_DHT12_I2C` if you wired a DHT12 to `SDA`/`SCL`). Then flash
+`environmental_monitor.ino` to an UNO R4 WiFi with the Arduino IDE 2.x and watch
+the serial monitor at 115200 baud.
+
+Without the Arduino IDE you can still verify the firmware compiles:
+
+```bash
+bash arduino/static_check/run.sh
+```
 
 ## 4. Configuration reference
 
@@ -113,11 +125,13 @@ Backend (`backend/.env`, template in `backend/.env.example`):
 | `BACKEND_HOST` / `BACKEND_PORT` | bind address/port (use `0.0.0.0`) |
 | `DATABASE_URL` | SQLite by default; PostgreSQL-ready |
 | `DEVICE_ID` | must match `DEVICE_ID` in the firmware |
-| `CORS_ORIGINS` | allowed browser origins |
+| `CORS_ORIGINS` | allowed browser origins (wildcards are ignored, never honoured) |
+| `CORS_ALLOW_LAN_ORIGINS` | also accept RFC1918 browser origins (demo convenience; off by default) |
 | `REQUIRE_AUTH_FOR_READS` | also protect read endpoints |
 | `RAIN_*` / `LIGHT_*` / `AIR_QUALITY_*` | ADC calibration; must match the firmware |
 | `ANALYTICS_DEFAULT_HOURS`, `RETENTION_DAYS` | history windows |
 | `OLLAMA_HOST`, `OLLAMA_MODEL` | local Ollama endpoint and model |
+| `OLLAMA_MODELS_DIRS` | extra model-store locations to read when listing installed models |
 | `RISK_CONFIG_FILE` | optional JSON that replaces the risk weights/bands |
 
 Frontend (`frontend/.env`): `VITE_API_BASE_URL`, `VITE_PROXY_TARGET`,
@@ -134,8 +148,11 @@ machine. It never installs, downloads, replaces or duplicates anything.
 * detection order: `ollama` on `PATH` → `%LOCALAPPDATA%\Programs\Ollama\ollama.exe`
   → `/usr/local/bin/ollama` etc.
 * models are read from the running server (`GET /api/tags`) and, if the server is
-  down, from the configured model directory (`OLLAMA_MODELS`, e.g. `D:\OllamaModels`)
-  so you can still see what is installed
+  down, from the model directory on disk, so you can still see what is installed.
+  Lookup order: `OLLAMA_MODELS` (Ollama's own variable), then `OLLAMA_MODELS_DIRS`
+  (a comma-separated list for machines that keep models off the system drive,
+  e.g. `D:/OllamaModels`), then the conventional per-platform locations. No path
+  is hardcoded in the source.
 * the model is selected by `OLLAMA_MODEL` when set, otherwise from
   `OLLAMA_FALLBACK_MODELS` (default `gemma3:4b,qwen3:4b,qwen3:8b,…`)
 * `GET /api/v1/chat/status` reports availability, the chosen model and the reason
@@ -152,7 +169,7 @@ The browser never talks to Ollama: `Frontend → FastAPI → Ollama → FastAPI 
 
 ```bash
 cd backend
-python -m pytest -q          # 77 tests, isolated temp database, no network needed
+python -m pytest -q          # isolated temp database, no network needed
 ```
 
 Coverage includes health/auth, payload validation (malformed, extreme, stale,
@@ -218,6 +235,7 @@ Details, schemas and examples: [`docs/api.md`](docs/api.md) and `/docs`.
 | --- | --- |
 | Dashboard shows "Waiting for the Arduino…" | Node not flashed, wrong `BACKEND_HOST`, different network, or firewall blocking the port |
 | `POST /sensors/data` → 401/403 | `API_KEY` mismatch between `backend/.env` and the firmware `config.h` |
+| `POST /sensors/data` → 503 | `API_KEY` is still a placeholder or shorter than 16 characters; the response names the reason |
 | `POST /sensors/data` → 422 | A value outside the physical range, or a stale timestamp (the error names the field) |
 | Device goes offline in the UI | No payload within `DEVICE_OFFLINE_AFTER_SECONDS` (default 60 s) — check power/Wi-Fi |
 | `/chat` says "AI unavailable" | Ollama is not running; the sensor platform is unaffected |
@@ -238,4 +256,6 @@ Details, schemas and examples: [`docs/api.md`](docs/api.md) and `/docs`.
 * **Degrade, never crash.** Ollama down, device offline, empty database, one
   sensor dead — each has an explicit state in the API and the UI.
 * **Secrets stay outside the repo.** `.env` and `config.h` are git-ignored; only
-  `.env.example` / `config.example.h` templates are tracked.
+  `.env.example` / `config.example.h` templates are tracked. The server also
+  *refuses* to authenticate a device with a placeholder or short key, so a
+  template value can never quietly become a production credential.

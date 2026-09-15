@@ -359,10 +359,22 @@ class Settings(BaseSettings):
     # --- networking -------------------------------------------------------
     backend_host: str = "0.0.0.0"
     backend_port: int = 8000
-    #: Comma separated list of allowed browser origins.
+    #: Comma separated list of allowed browser origins. This is the only way to
+    #: grant browser access; wildcards are rejected outright (see main.py).
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
-    #: Extra origin regexes (useful for LAN IPs during a demo).
-    cors_origin_regex: str = r"^https?://(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+)(:\d+)?$"
+    #: Optional extra origin regex. Empty by default *on purpose*: in production
+    #: the frontend is served from a known origin and listed in CORS_ORIGINS.
+    #: Development wants to reach the API from the laptop's LAN address, so
+    #: .env.example enables a private-range regex for development only.
+    cors_origin_regex: str = ""
+    #: Allow the private LAN ranges as browser origins. Convenient for a demo
+    #: (open the dashboard from a phone on the same hotspot) and therefore off
+    #: unless explicitly enabled. Never enables anything outside RFC1918.
+    cors_allow_lan_origins: bool = False
+
+    #: Origins that must never be accepted: a wildcard silently undoes the whole
+    #: allow-list, so it is treated as a configuration error rather than a value.
+    #: (Kept as a constant so tests and the startup check share one definition.)
 
     # --- security ---------------------------------------------------------
     api_key: str = "change-me-device-key"
@@ -403,6 +415,11 @@ class Settings(BaseSettings):
     # --- ollama -----------------------------------------------------------
     ollama_enabled: bool = True
     ollama_host: str = "http://localhost:11434"
+    #: Extra directories that may hold the existing Ollama model store, checked
+    #: when OLLAMA_MODELS is not set. Comma separated, machine specific, and
+    #: empty by default: this project never assumes where a model store lives.
+    #: Example (models kept off the system drive): OLLAMA_MODELS_DIRS=D:/OllamaModels
+    ollama_models_dirs: str = ""
     #: Leave empty to auto-detect from the models installed locally.
     ollama_model: str = ""
     #: Preference order used when ``OLLAMA_MODEL`` is not set. Non-thinking models
@@ -439,7 +456,39 @@ class Settings(BaseSettings):
 
     @property
     def cors_origin_list(self) -> list[str]:
-        return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
+        """Explicit browser origins, with wildcards dropped rather than honoured."""
+        return [
+            origin.strip()
+            for origin in self.cors_origins.split(",")
+            if origin.strip() and origin.strip() != "*"
+        ]
+
+    @property
+    def cors_wildcard_requested(self) -> bool:
+        """True when CORS_ORIGINS contains a catch-all entry."""
+        return any(origin.strip() == "*" for origin in self.cors_origins.split(","))
+
+    @property
+    def cors_regex(self) -> str | None:
+        """The origin regex actually handed to CORS, or None.
+
+        ``CORS_ALLOW_LAN_ORIGINS`` only ever widens the policy to private
+        address ranges - never to the public internet - and is a documented,
+        explicit opt-in rather than a default.
+        """
+        parts: list[str] = []
+        if self.cors_origin_regex.strip():
+            parts.append(self.cors_origin_regex.strip())
+        if self.cors_allow_lan_origins:
+            parts.append(
+                r"^https?://(192\.168\.\d{1,3}\.\d{1,3}|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|"
+                r"172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3})(:\d+)?$"
+            )
+        return "|".join(f"(?:{part})" for part in parts) if parts else None
+
+    @property
+    def ollama_models_dir_list(self) -> list[str]:
+        return [entry.strip() for entry in self.ollama_models_dirs.split(",") if entry.strip()]
 
     @property
     def ollama_fallback_list(self) -> list[str]:

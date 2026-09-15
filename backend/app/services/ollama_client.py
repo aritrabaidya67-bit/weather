@@ -91,20 +91,38 @@ def detect_binary() -> str | None:
     return None
 
 
-def detect_models_directory() -> Path | None:
+def detect_models_directory(settings: Settings | None = None) -> Path | None:
+    """Find the model store of the *existing* Ollama installation.
+
+    Nothing is ever written here; the directory is only read so the UI can list
+    what is already installed when the server is not running. Resolution order:
+
+    1. ``OLLAMA_MODELS`` - the variable Ollama itself honours, so if the user has
+       already moved their store, this is authoritative.
+    2. ``OLLAMA_MODELS_DIRS`` - this project's own comma-separated list, for
+       machines that keep models off the system drive (e.g. ``D:/OllamaModels``).
+       It is configuration, never a hardcoded path, so no machine layout is
+       baked into the source.
+    3. The conventional per-platform locations.
+    """
+    settings = settings or get_settings()
+
     env = os.environ.get("OLLAMA_MODELS")
     if env:
         path = Path(env)
         if path.exists():
             return path
+
+    configured = [Path(entry) for entry in settings.ollama_models_dir_list]
+    candidates: list[Path] = list(configured)
     if os.name == "nt":
-        candidates = [Path("D:/OllamaModels")]
         local_appdata = os.environ.get("LOCALAPPDATA")
         if local_appdata:
             candidates.append(Path(local_appdata) / "Ollama" / "models")
         candidates.append(Path.home() / ".ollama" / "models")
     else:
-        candidates = [Path.home() / ".ollama" / "models", Path("/usr/share/ollama/.ollama/models")]
+        candidates.append(Path.home() / ".ollama" / "models")
+        candidates.append(Path("/usr/share/ollama/.ollama/models"))
     for candidate in candidates:
         if candidate.exists():
             return candidate

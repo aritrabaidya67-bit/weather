@@ -1,210 +1,154 @@
-/** Hardware page: device telemetry, sensor availability and firmware setup hints. */
+/**
+ * Hardware Telemetry & Setup
+ * Modern visual representation of device health and configuration.
+ */
 
-import { Activity, Cpu, Radio, Server, Wifi } from "lucide-react";
-import { useEffect, useState } from "react";
+import { Cpu, Radio, Server, Wifi, Activity } from "lucide-react";
 import { SensorHealthTable } from "../components/dashboard/Panels";
-import { Card, CardSkeleton, Chip, DataBadge, EmptyState, InlineNote, SectionHeader, StatusDot } from "../components/common/Ui";
-import { api, API_PREFIX } from "../services/api";
+import { Chip, DataBadge, EmptyState, SectionHeaderPill, StatusDot } from "../components/common/Ui";
+import { API_PREFIX } from "../services/api";
 import { usePlatform } from "../state/PlatformContext";
-import type { WorkerStatus } from "../types";
 import { relativeTime, secondsAgo } from "../utils/format";
 
 export default function DevicePage() {
-  const { device, meta, overview, status, deviceId } = usePlatform();
-  const [workers, setWorkers] = useState<WorkerStatus | null>(null);
+  const { device, meta, overview, deviceId } = usePlatform();
 
-  const loadWorkers = () => {
-    void api.workers().then(setWorkers).catch(() => setWorkers(null));
-  };
-
-  useEffect(() => {
-    loadWorkers();
-    const timer = window.setInterval(loadWorkers, 10_000);
-    return () => window.clearInterval(timer);
-  }, []);
-
-  const firmwareSnippet = `// arduino/environmental_monitor/config.h (edit these, never commit real secrets)
+  const firmwareSnippet = `// arduino/environmental_monitor/config.h
 #define WIFI_SSID        "YOUR_HOTSPOT_SSID"
 #define WIFI_PASSWORD    "YOUR_WIFI_PASSWORD"
-#define BACKEND_HOST     "192.168.1.50"   // laptop LAN/hotspot IP - NOT localhost
+#define BACKEND_HOST     "192.168.1.50"   // LAN IP, NOT localhost
 #define BACKEND_PORT     8000
 #define API_KEY          "your-device-api-key"
 #define DEVICE_ID        "arduino-r4-wifi-01"
 #define SEND_INTERVAL_MS 15000`;
 
   return (
-    <div className="space-y-5">
-      <SectionHeader
-        title="Hardware"
-        subtitle="Arduino UNO R4 Wi-Fi node telemetry and sensor availability."
-        icon={<Cpu size={16} />}
-        action={<DataBadge source={overview?.data_source} />}
-      />
+    <div className="space-y-6 animate-float-in">
+      
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 panel p-5">
+        <div>
+          <h1 className="text-xl font-bold tracking-tight text-slate-900 dark:text-white flex items-center gap-2">
+            <Cpu size={20} className="text-cyan-500" />
+            Hardware & Telemetry
+          </h1>
+          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
+            Arduino UNO R4 node status and configuration.
+          </p>
+        </div>
+        <DataBadge source={overview?.data_source} />
+      </div>
 
       {!device ? (
-        <Card>
+        <div className="panel flex flex-col items-center justify-center p-12 text-center min-h-[50vh]">
+          <div className="rounded-full bg-slate-100 p-4 dark:bg-surface-800 mb-6 text-slate-400">
+            <Cpu size={32} />
+          </div>
           <EmptyState
-            icon={<Cpu size={20} />}
-            title="Waiting for the Arduino UNO R4 Wi-Fi"
-            message="Power the node, confirm it joined the correct Wi-Fi network, set BACKEND_HOST to this machine's LAN IP (never localhost) and make sure the firewall allows the backend port."
+            title="Waiting for Arduino Connection"
+            message="Ensure the node is powered, on Wi-Fi, and BACKEND_HOST is set to this machine's LAN IP. Check your firewall."
           />
-        </Card>
+        </div>
       ) : (
-        <div className="grid gap-4 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]">
-          <Card>
-            <SectionHeader
-              title={device.display_name ?? device.device_id}
-              subtitle={`${device.device_id} · ${device.source}`}
-              icon={<Radio size={16} />}
-              action={
+        <div className="grid gap-6 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]">
+          
+          {/* Main Device Status */}
+          <div className="space-y-6">
+            <section className="panel p-6 sm:p-8 relative overflow-hidden">
+              <div className="absolute right-0 top-0 w-64 h-64 bg-cyan-500/5 rounded-full filter blur-3xl translate-x-1/2 -translate-y-1/2" />
+              
+              <div className="flex items-start justify-between mb-8 relative z-10">
+                <div>
+                  <SectionHeaderPill icon={<Radio size={16} />} title="Device Status" className="mb-2" />
+                  <h2 className="text-2xl font-bold text-slate-900 dark:text-white">{device.display_name ?? device.device_id}</h2>
+                  <p className="text-xs font-mono text-slate-500 mt-1">{device.device_id}</p>
+                </div>
                 <Chip severity={device.online ? "good" : "critical"}>
                   <StatusDot severity={device.online ? "good" : "critical"} pulse={device.online} />
-                  {device.online ? "online" : device.status.replace("_", " ")}
+                  {device.online ? "ONLINE" : device.status.replace("_", " ").toUpperCase()}
                 </Chip>
-              }
-              className="mb-3"
-            />
-            <p className="text-sm text-slate-600 dark:text-slate-300">{device.status_message}</p>
-
-            <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 text-xs sm:grid-cols-3">
-              <Field label="Firmware" value={device.firmware_version ?? "not reported"} />
-              <Field label="IP address" value={device.ip_address ?? "not reported"} icon={<Wifi size={11} />} />
-              <Field
-                label="Wi-Fi signal"
-                value={device.rssi !== null ? `${device.rssi} dBm · ${device.rssi_quality}` : "not reported"}
-                icon={<Wifi size={11} />}
-              />
-              <Field label="Last payload" value={relativeTime(device.last_payload_at)} />
-              <Field label="Time since payload" value={`${secondsAgo(device.seconds_since_last_payload)} ago`} />
-              <Field
-                label="Transmit interval"
-                value={`${device.transmission_interval_seconds ?? device.expected_interval_seconds ?? "—"} s`}
-              />
-              <Field label="Uptime" value={device.uptime_human ?? "not reported"} />
-              <Field label="First seen" value={relativeTime(device.first_seen_at)} />
-              <Field label="Readings stored" value={String(device.total_readings)} />
-              <Field label="Rejected payloads" value={String(device.rejected_payloads)} />
-              <Field label="Missed intervals" value={String(device.missed_intervals)} />
-              <Field
-                label="Delivery rate"
-                value={device.estimated_delivery_rate_pct !== null ? `${device.estimated_delivery_rate_pct}%` : "—"}
-              />
-            </dl>
-
-            {device.notes.length ? (
-              <ul className="mt-3 space-y-1">
-                {device.notes.map((note) => (
-                  <li key={note} className="text-[11px] text-amber-600 dark:text-amber-400">
-                    {note}
-                  </li>
-                ))}
-              </ul>
-            ) : null}
-          </Card>
-
-          <div className="space-y-4">
-            <Card>
-              <SectionHeader
-                title="Sensor availability"
-                subtitle={`${device.sensors_available.length} reporting · ${device.sensors_missing.length} missing`}
-                className="mb-3"
-              />
-              <div className="flex flex-wrap gap-1.5">
-                {device.sensors_available.map((sensor) => (
-                  <Chip key={sensor} severity="good">
-                    {sensor.replace(/_/g, " ")}
-                  </Chip>
-                ))}
-                {device.sensors_missing.map((sensor) => (
-                  <Chip key={sensor} severity="critical">
-                    {sensor.replace(/_/g, " ")} · missing
-                  </Chip>
-                ))}
-                {!device.sensors_available.length && !device.sensors_missing.length ? (
-                  <span className="text-xs text-slate-500 dark:text-slate-400">No sensor metadata reported yet.</span>
-                ) : null}
               </div>
-              <InlineNote severity="info" className="mt-3">
-                A missing sensor is recorded as <em>no value</em> rather than being filled in, so charts show a gap
-                instead of a fabricated number.
-              </InlineNote>
-            </Card>
 
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 relative z-10">
+                <MetricBlock label="IP Address" value={device.ip_address ?? "—"} icon={<Wifi size={14} />} />
+                <MetricBlock label="Signal (RSSI)" value={device.rssi ? `${device.rssi} dBm` : "—"} />
+                <MetricBlock label="Uptime" value={device.uptime_human ?? "—"} />
+                <MetricBlock label="Interval" value={`${device.transmission_interval_seconds ?? "—"}s`} />
+                <MetricBlock label="Readings" value={String(device.total_readings)} />
+                <MetricBlock label="Delivery Rate" value={device.estimated_delivery_rate_pct ? `${device.estimated_delivery_rate_pct}%` : "—"} />
+              </div>
+              
+              <div className="mt-6 pt-4 border-t border-slate-200/50 dark:border-white/5 flex flex-wrap gap-4 text-[11px] text-slate-500">
+                <span>Last seen: {relativeTime(device.last_payload_at)} ({secondsAgo(device.seconds_since_last_payload)}s ago)</span>
+                <span>Firmware: {device.firmware_version ?? "unknown"}</span>
+              </div>
+            </section>
+
+            {overview?.has_data && (
+              <section className="panel p-6">
+                <SectionHeaderPill icon={<Activity size={16} />} title="Sensor Health Detail" className="mb-4" />
+                <SensorHealthTable sensors={overview.sensor_health} />
+              </section>
+            )}
           </div>
+
+          {/* Sidebar */}
+          <div className="space-y-6">
+            <section className="panel p-6">
+              <SectionHeaderPill icon={<Activity size={16} />} title="Sensor Availability" className="mb-6" />
+              <div className="space-y-4">
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2">Online Sensors ({device.sensors_available.length})</p>
+                  <div className="flex flex-wrap gap-2">
+                    {device.sensors_available.map(s => (
+                      <Chip key={s} severity="info">{s.replace(/_/g, " ")}</Chip>
+                    ))}
+                    {!device.sensors_available.length && <span className="text-xs text-slate-400">None</span>}
+                  </div>
+                </div>
+                {device.sensors_missing.length > 0 && (
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2">Missing/Offline ({device.sensors_missing.length})</p>
+                    <div className="flex flex-wrap gap-2">
+                      {device.sensors_missing.map(s => (
+                        <Chip key={s} severity="critical">{s.replace(/_/g, " ")}</Chip>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </section>
+
+            <section className="panel p-6">
+              <SectionHeaderPill icon={<Server size={16} />} title="Firmware Setup" className="mb-4" />
+              <div className="bg-slate-900 rounded-xl overflow-hidden shadow-inner mb-4">
+                <div className="bg-slate-800/50 px-4 py-2 border-b border-white/10">
+                  <span className="text-[10px] font-mono text-slate-400">config.h</span>
+                </div>
+                <pre className="p-4 text-[11px] font-mono leading-relaxed text-slate-300 overflow-x-auto">
+                  {firmwareSnippet}
+                </pre>
+              </div>
+              <ul className="space-y-2 text-[11px] text-slate-500 dark:text-slate-400">
+                <li><strong className="text-slate-700 dark:text-slate-300">LAN IP:</strong> {(meta?.local_addresses ?? []).join(", ") || "none detected"}</li>
+                <li><strong className="text-slate-700 dark:text-slate-300">API Endpoint:</strong> <code>{API_PREFIX}/sensors/data</code></li>
+                <li><strong className="text-slate-700 dark:text-slate-300">Risk Endpoint:</strong> <code>{API_PREFIX}/device/{deviceId ?? "&lt;device&gt;"}/risk-state</code></li>
+              </ul>
+            </section>
+          </div>
+
         </div>
       )}
-
-      {overview?.has_data ? (
-        <Card>
-          <SectionHeader title="Sensor health detail" subtitle="From the analytics service (rate, coverage, stuck detection)" icon={<Activity size={16} />} className="mb-3" />
-          <SensorHealthTable sensors={overview.sensor_health} />
-        </Card>
-      ) : null}
-
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Card>
-          <SectionHeader title="Connect the Arduino" subtitle="This is the only configuration the firmware needs" icon={<Server size={16} />} className="mb-3" />
-          <pre className="overflow-x-auto rounded-xl bg-slate-900 px-3 py-3 text-[11px] leading-relaxed text-slate-100 dark:bg-slate-950">
-{firmwareSnippet}
-          </pre>
-          <ul className="mt-3 space-y-1 text-xs text-slate-600 dark:text-slate-300">
-            <li>• LAN addresses detected by the backend: {(meta?.local_addresses ?? []).join(", ") || "none detected"}</li>
-            <li>• Recommended backend URL for the firmware: {meta?.recommended_backend_url ?? "—"}</li>
-            <li>• API endpoint the firmware posts to: <code>{API_PREFIX}/sensors/data</code></li>
-            <li>• Risk state for the LEDs/buzzer: <code>{API_PREFIX}/device/{deviceId ?? "&lt;device&gt;"}/risk-state</code></li>
-            <li>• The Arduino must never use localhost - that would refer to the Arduino itself.</li>
-            <li>• Windows Firewall must allow inbound TCP on the backend port for private networks.</li>
-          </ul>
-        </Card>
-
-        <Card>
-          <SectionHeader title="Backend workers" subtitle="Watchdog, prediction snapshots, retention, Ollama probe" className="mb-3" />
-          {workers ? (
-            <div className="space-y-3 text-xs">
-              <div className="flex flex-wrap gap-2">
-                <Chip severity={workers.background.enabled ? "good" : "watch"}>
-                  background {workers.background.enabled ? "enabled" : "disabled"}
-                </Chip>
-                <Chip severity="info">realtime subscribers {workers.realtime_subscribers}</Chip>
-                <Chip severity="info">{workers.rules_loaded} alert rules</Chip>
-              </div>
-              <ul className="space-y-1 text-slate-600 dark:text-slate-300">
-                {Object.entries(workers.background.last_runs).map(([job, time]) => (
-                  <li key={job}>
-                    • {job.replace(/_/g, " ")}: {relativeTime(time)}
-                  </li>
-                ))}
-                {!Object.keys(workers.background.last_runs).length ? <li>No background job has run yet.</li> : null}
-              </ul>
-              <ul className="space-y-1 text-slate-500 dark:text-slate-400">
-                {Object.entries(workers.background.counters).map(([key, value]) => (
-                  <li key={key}>
-                    {key.replace(/_/g, " ")}: <span className="tabular">{value}</span>
-                  </li>
-                ))}
-              </ul>
-              <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400">
-                <StatusDot severity={status?.ollama?.available ? "good" : "unknown"} />
-                Ollama: {status?.ollama?.available ? status.ollama.model : status?.ollama?.detail ?? "unknown"}
-              </div>
-            </div>
-          ) : (
-            <CardSkeleton />
-          )}
-        </Card>
-      </div>
     </div>
   );
 }
 
-function Field({ label, value, icon }: { label: string; value: string; icon?: React.ReactNode }) {
+function MetricBlock({ label, value, icon }: { label: string; value: string; icon?: React.ReactNode }) {
   return (
-    <div>
-      <dt className="flex items-center gap-1 text-[10px] uppercase tracking-wide text-slate-400">
-        {icon}
-        {label}
-      </dt>
-      <dd className="tabular font-medium text-slate-700 dark:text-slate-200">{value}</dd>
+    <div className="bg-slate-50/50 dark:bg-surface-900/40 border border-slate-200/50 dark:border-white/5 rounded-xl p-3">
+      <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1">
+        {icon} {label}
+      </div>
+      <div className="font-bold text-slate-800 dark:text-slate-200 tabular">{value}</div>
     </div>
   );
 }

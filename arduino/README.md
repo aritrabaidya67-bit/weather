@@ -15,20 +15,25 @@ sensors -> read + validate -> JSON -> HTTP POST (X-API-Key)
 | Item | Status |
 | --- | --- |
 | Code structure, pin map, JSON contract, HTTP flow | **Code-reviewed** |
-| Compiled on physical hardware / Arduino IDE | **NOT DONE** — the Arduino IDE and R4 board package were not available while this firmware was written |
+| Static compilation (both sensor configurations, pin conflicts, API usage) | **DONE** — `bash arduino/static_check/run.sh` |
+| Compiled with the Arduino IDE / UNO R4 toolchain | **NOT DONE** — the IDE and R4 board package were not available |
 | Sensors actually read on a bench | **NOT DONE** |
 | LEDs / buzzer physically observed | **NOT DONE** |
+| Wi-Fi association, HTTP POST and risk polling against a running backend | **NOT DONE** |
 
 Everything the backend does with this payload *is* tested (see
-`backend/tests/`). The firmware itself must still be compiled and bench-verified
-by you; `arduino/README.md` is written so that you can do exactly that.
+`backend/tests/`), and the firmware is verified to compile cleanly under
+`-Wall -Wextra -Werror` with a host C++ compiler. The firmware must still be
+compiled with the real toolchain and bench-verified by you; this file is written
+so that you can do exactly that.
 
 ## 1. Hardware
 
 | # | Part | Interface | Pin / address |
 | --- | --- | --- | --- |
 | 1 | Arduino UNO R4 WiFi | — | — |
-| 2 | DHT12 / AM2302 (temperature + humidity) | one-wire | `D2` (`config.h`: `PIN_DHT`) |
+| 2 | **AM2302 / DHT22** (temperature + humidity) — *default* | one-wire | `D2` (`config.h`: `PIN_DHT`) |
+| 2b | *Alternative:* **DHT12** (temperature + humidity) in **I²C mode** | I²C | `SDA`/`SCL`, fixed address `0x5C` |
 | 3 | Rain sensor (LM393 board) | analog | `A0` |
 | 4 | LDR (GL5528 + 10 kΩ divider) | analog | `A1` |
 | 5 | BMP280 (pressure + temperature) | I²C | `SDA`/`SCL`, address `0x76` (`0x77` if SDO is high) |
@@ -36,14 +41,23 @@ by you; `arduino/README.md` is written so that you can do exactly that.
 | 7 | Buzzer | digital | `D8` |
 | 8 | 5 × LEDs (risk indicator) | digital | `D3 D4 D5 D6 D7` = level 1…5 |
 
+This table is the authoritative pin map. `config.h`, `docs/hardware.md` and the
+sketch header must always match it, and the sketch contains `static_assert`s that
+fail the build if any two of these pins collide.
+
 ### Wiring notes
 
 * **LEDs:** anode → `D3`…`D7`, cathode → 220 Ω → GND (active-high, the default
   `LED_ACTIVE_HIGH 1`; set it to `0` for an active-low wiring).
-* **DHT12/AM2302:** data → `D2`, plus a 10 kΩ pull-up from data to 3V3. If your
-  DHT12 uses its I²C mode, wire it to `SDA`/`SCL` instead and keep
-  `DHT_TYPE DHT22` — the sensor ships configured for the one-wire (DHT22)
-  protocol, which is what this firmware expects.
+* **AM2302/DHT22:** data → `D2`, plus a 10 kΩ pull-up from data to 3V3.* **DHT12 (alternative):** wire `SDA`/`SCL`/`VCC`/`GND` and set
+  `TEMP_HUMIDITY_SENSOR SENSOR_DHT12_I2C`.
+* **Do not put a DHT12 on `D2`.** The DHT12's one-wire mode transmits the
+  DHT11-style frame (integer + decimal byte per quantity), not the AM2302/DHT22
+  16-bit frame. A DHT22 decoder does not fail cleanly on it - it silently
+  mis-decodes: a real 45.3 %RH / 24.6 °C DHT12 reading becomes about
+  **1152 %RH / 615 °C**, which the firmware's range guard then discards. The
+  firmware rejects the invalid combination at compile time, and the detail is in
+  `docs/hardware.md`.
 * **Rain sensor:** use the analog output (`AO`), power it from 3V3. The board is
   *inverted*: high counts = dry, low counts = wet. That is already handled, and
   the calibration constants match the backend.
@@ -59,12 +73,28 @@ Install from *Arduino IDE → Tools → Manage Libraries*:
 
 | Library | Version | Why |
 | --- | --- | --- |
-| **DHT sensor library** (Adafruit) | ≥ 1.4.6 | DHT12 / AM2302 |
+| **DHT sensor library** (Adafruit) | ≥ 1.4.6 | AM2302/DHT22 (only needed for the `SENSOR_AM2302_DHT22` build) |
 | **Adafruit BMP280 Library** | ≥ 2.6.8 | pressure + temperature (pulls in *Adafruit Unified Sensor*) |
 | **ArduinoJson** (Benoît Blanchon) | ≥ 7.0 | payload + response parsing |
 
 `WiFiS3`, `Wire` and `tone()` ship with the **Arduino UNO R4 Boards** core — no
-extra install.
+extra install. The Adafruit DHT library is only needed for the
+`SENSOR_AM2302_DHT22` configuration; the DHT12 build uses `Wire` directly.
+
+## 2b. Static checks (no Arduino IDE needed)
+
+```bash
+bash arduino/static_check/run.sh
+```
+
+This compiles the sketch with a host C++ compiler against signature-faithful API
+stubs. It is a real check, not a formality: it type-checks every API call, and it
+proves two safety properties by *requiring* the build to fail if they are broken
+— an unsupported `TEMP_HUMIDITY_SENSOR` and a duplicated pin. It runs four
+passes: the AM2302 build, the DHT12 build, and both negative cases.
+
+It does **not** read a sensor, drive a pin, connect to Wi-Fi or upload anything.
+Green here means "the code is sound", never "the board works".
 
 ## 3. Configuration
 
@@ -85,6 +115,15 @@ Edit `config.h`:
 #define API_KEY         "the-same-value-as-API_KEY-in-backend/.env"
 #define DEVICE_ID       "arduino-r4-wifi-01"   // must match DEVICE_ID in backend/.env
 #define SEND_INTERVAL_MS 15000
+#define TEMP_HUMIDITY_SENSOR SENSOR_AM2302_DHT22   // or SENSOR_DHT12_I2C
+```
+
+`API_KEY` must be the same value as `backend/.env`, and the backend **rejects**
+placeholder or short keys outright (HTTP 503 naming the reason), so generate a
+real one:
+
+```bash
+python -c "import secrets; print(secrets.token_urlsafe(32))"
 ```
 
 If `config.h` is missing the sketch still compiles against
@@ -110,14 +149,20 @@ Expected serial output:
 =====================================================
  Environmental Intelligence Platform - Arduino UNO R4
 =====================================================
+INFO: Temperature/humidity sensor: AM2302/DHT22 on D2 (one-wire, DHT22 frame)
+INFO: Pin map: rain=A0 light=A1 air=A2 LEDs=D3/D4/D5/D6/D7 buzzer=D8 (LEDs active-high)
 INFO: BMP280 initialised
-INFO: Wi-Fi connected on boot. IP 192.168.137.42
+INFO: Connecting to Wi-Fi 'YOUR_HOTSPOT_SSID' ...
+INFO: Wi-Fi connected. IP 192.168.137.42 RSSI -58 dBm
+INFO: Posting to http://192.168.1.50:8000/api/v1/sensors/data
 INFO: Clock synchronised with the backend server time
 INFO: Payload accepted (id 128) - risk L1 Very Low 5.2/100
-INFO: Risk level from backend: L1 (Very Low, score 5.2/100)
 INFO: Buzzer pattern: silent
 INFO: wifi=up posts=4 failed=0 risk=L1 pattern=silent stale=no alerts=0
 ```
+
+Compare the `Pin map:` line against the table above before chasing anything
+else: it is the wiring the firmware actually compiled with.
 
 If you see `Backend rejected the API key (HTTP 401)`, `API_KEY` and
 `backend/.env`'s `API_KEY` differ. If you see
@@ -200,6 +245,10 @@ The response is
 | `HTTP 401/403` | `API_KEY` in `config.h` ≠ `API_KEY` in `backend/.env` |
 | `HTTP 422` | A value fell outside the backend's accepted range; the detail names the field |
 | `BMP280 not found` | I²C wiring, address `0x76` vs `0x77`, 3V3 supply |
+| `DHT12 did not acknowledge on the I2C bus` | DHT12 wiring/power, or `TEMP_HUMIDITY_SENSOR` set to `SENSOR_DHT12_I2C` for an AM2302/DHT22 (which is not on I²C) |
+| Temperature/humidity always missing, other channels fine | Wrong `TEMP_HUMIDITY_SENSOR` for the wired part - a DHT12 on `D2` decodes to ~1152 %RH and is discarded by the range guard |
 | DHT reads `nan` | Missing 10 kΩ pull-up, or the sensor needs a 2 s gap between reads |
+| `Wi-Fi association timed out` repeating | SSID/password wrong, or the AP is out of range; the node waits `WIFI_ASSOC_TIMEOUT_MS` (20 s) per attempt |
+| `Cannot open TCP connection to …` | `BACKEND_HOST` is not the PC's LAN IP, different network, or the firewall blocks the port (the firmware logs the first failure and then every 10th) |
 | Rain/light values look inverted | Sensor board type differs; adjust `RAIN_DRY_ADC`/`RAIN_WET_ADC` (and the backend equivalents) together |
 | Air quality always "poor" | MQ-135 still burning in, or its baseline drifted — recalibrate with clean air |

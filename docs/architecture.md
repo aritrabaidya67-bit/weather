@@ -33,7 +33,7 @@ ranges and interpretation bands.
 
 `POST /api/v1/sensors/data` → `SensorService.ingest` performs, in order:
 
-1. **Auth** — `X-API-Key` constant-time comparison; 401/403 on mismatch, 503 while no key is configured.
+1. **Auth** — `X-API-Key` constant-time comparison; `401` on a missing or wrong key, `503` while the configured key is empty, templated or under 16 characters.
 2. **Rate limit** — per-key token bucket (`INGEST_RATE_LIMIT_PER_MINUTE`).
 3. **Schema validation** — Pydantic: types, `ge`/`le` bounds, unknown fields rejected.
 4. **Physical plausibility** — values outside the registry's physical window are dropped (and reported), never stored.
@@ -126,6 +126,30 @@ medical/safety-critical advice.
 Timezone-aware UTC column types are used so SQLite and PostgreSQL behave
 identically; repositories take a plain `Session`, so moving to PostgreSQL is a
 `DATABASE_URL` change plus `pip install psycopg`.
+
+## Security boundaries
+
+There is exactly one credential in the system: the device API key the Arduino
+sends as `X-API-Key`. Everything else is derived from it.
+
+* **Only the device authenticates.** The dashboard is a read-only consumer of
+  open endpoints (or of the same header if `REQUIRE_AUTH_FOR_READS=true`), so no
+  secret is ever shipped to a browser. `frontend/src/**` contains no key, and
+  there is no build-time injection path for one.
+* **Key quality is enforced, not assumed.** The server refuses a key that is
+  empty, under 16 characters, low-variety, or that contains a placeholder marker
+  (`change-me`, `replace_with`, `example`, `dev-local-key`, `test-key`, …). The
+  device endpoints answer `503` with the reason, so a template value cannot
+  quietly become a production credential.
+* **Comparison is constant time** (`secrets.compare_digest`) and every accepted
+  key is registered for log redaction, so a key can never appear in a log line.
+* **CORS is an allow-list.** `CORS_ORIGINS` is the only way to grant browser
+  access and a `*` entry is dropped rather than honoured; the optional LAN regex
+  is an explicit opt-in and can only ever match RFC1918 addresses. Credentials
+  are disabled because there is nothing session-based to protect.
+* **The LLM is not a trust boundary.** Ollama is reached only from the backend,
+  never from the browser, and the model only ever sees a snapshot the backend
+  built from its own stored data (see the Chatbot section).
 
 ## Background work
 

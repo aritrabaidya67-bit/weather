@@ -1,33 +1,32 @@
-/** Alert centre: active and historical alerts with acknowledge/resolve and the rule catalogue. */
+/**
+ * Alerts & Events Center.
+ * Reimagined as an actionable timeline rather than a sterile log table.
+ */
 
-import { BellRing, Check, ListChecks, RefreshCw, ShieldCheck } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import { BellRing, Check, ShieldCheck, ShieldAlert, AlertTriangle, Info, ShieldX } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
-import { Card, CardSkeleton, Chip, EmptyState, ErrorState, SectionHeader } from "../components/common/Ui";
-import { api, ApiError } from "../services/api";
+import { CardSkeleton, Chip, SectionHeaderPill } from "../components/common/Ui";
+import { api } from "../services/api";
 import { usePlatform } from "../state/PlatformContext";
 import type { Alert, AlertList } from "../types";
-import { ALERT_CLASSES, classNames, relativeTime } from "../utils/format";
+import { classNames, relativeTime } from "../utils/format";
 
 export default function AlertsPage() {
   const { meta, refresh } = usePlatform();
   const [filter, setFilter] = useState<{ activeOnly: boolean; severity: string | null }>({ activeOnly: false, severity: null });
   const [data, setData] = useState<AlertList | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(() => {
     setLoading(true);
-    setError(null);
-    void api
-      .alerts({ active_only: filter.activeOnly, severity: filter.severity ?? undefined, limit: 100 })
+    void api.alerts({ active_only: filter.activeOnly, severity: filter.severity ?? undefined, limit: 100 })
       .then(setData)
-      .catch((caught) => setError(caught instanceof ApiError ? caught.detail : "Could not load alerts."))
+      .catch(() => undefined)
       .finally(() => setLoading(false));
   }, [filter]);
 
-  useEffect(() => {
-    load();
-  }, [load]);
+  useEffect(() => { load(); }, [load]);
 
   const act = async (alert: Alert, action: "acknowledge" | "resolve") => {
     if (alert.id === null) return;
@@ -36,163 +35,187 @@ export default function AlertsPage() {
       else await api.resolveAlert(alert.id);
       load();
       await refresh({ silent: true });
-    } catch {
-      /* surfaced by the reload */
+    } catch {}
+  };
+
+  const getSeverityStyles = (severity: string, active: boolean) => {
+    if (!active) return "bg-slate-50 dark:bg-surface-900/40 border-slate-200/50 dark:border-white/5 opacity-70";
+    switch (severity) {
+      case "critical": return "bg-rose-50 border-rose-200 dark:bg-rose-500/10 dark:border-rose-500/20";
+      case "warning": return "bg-amber-50 border-amber-200 dark:bg-amber-500/10 dark:border-amber-500/20";
+      default: return "bg-sky-50 border-sky-200 dark:bg-sky-500/10 dark:border-sky-500/20";
     }
   };
 
+  const getSeverityIcon = (severity: string) => {
+    switch (severity) {
+      case "critical": return <ShieldX className="text-rose-500" />;
+      case "warning": return <AlertTriangle className="text-amber-500" />;
+      default: return <Info className="text-sky-500" />;
+    }
+  };
 
   return (
-    <div className="space-y-5">
-      <SectionHeader
-        title="Alert centre"
-        subtitle="Rule-based alerts with de-duplication, automatic resolution and recommended actions."
-        icon={<BellRing size={16} />}
-        action={
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={load}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1 text-[11px] text-slate-600 transition hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
-            >
-              <RefreshCw size={12} />
-              Refresh
-            </button>
-          </div>
-        }
-      />
-
-      <div className="flex flex-wrap items-center gap-2">
-        <button
-          type="button"
-          onClick={() => setFilter((current) => ({ ...current, activeOnly: !current.activeOnly }))}
-          className={classNames(
-            "rounded-full border px-3 py-1 text-xs font-medium transition",
-            filter.activeOnly
-              ? "border-transparent bg-slate-900 text-white dark:bg-cyan-500/20 dark:text-cyan-200"
-              : "border-slate-200 text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300",
-          )}
-        >
-          <ShieldCheck size={12} className="mr-1 inline" />
-          active only
-        </button>
-        {[null, "info", "warning", "critical"].map((severity) => (
+    <div className="space-y-6 animate-float-in">
+      {/* Header Area */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 panel p-5">
+        <div>
+          <h1 className="text-xl font-bold tracking-tight text-slate-900 dark:text-white flex items-center gap-2">
+            <BellRing size={20} className="text-cyan-500" />
+            Event Center
+          </h1>
+          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
+            {data ? `${data.active_count} active incidents requiring attention.` : 'Loading system events...'}
+          </p>
+        </div>
+        
+        <div className="flex items-center gap-2">
           <button
-            key={severity ?? "all"}
-            type="button"
-            onClick={() => setFilter((current) => ({ ...current, severity }))}
+            onClick={() => setFilter(c => ({ ...c, activeOnly: !c.activeOnly }))}
             className={classNames(
-              "rounded-full border px-3 py-1 text-xs font-medium capitalize transition",
-              filter.severity === severity
-                ? "border-transparent bg-slate-900 text-white dark:bg-cyan-500/20 dark:text-cyan-200"
-                : "border-slate-200 text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300",
+              "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-all",
+              filter.activeOnly 
+                ? "bg-slate-900 text-white shadow-sm dark:bg-white dark:text-slate-900" 
+                : "bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-surface-800 dark:text-slate-400"
             )}
           >
-            {severity ?? "all severities"}
+            <ShieldCheck size={14} /> Active Only
           </button>
-        ))}
+        </div>
       </div>
 
-      {error ? <ErrorState message={error} onRetry={load} /> : null}
-
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
-        <Card>
-          <SectionHeader
-            title={data ? `${data.alerts.length} alerts` : "Alerts"}
-            subtitle={data ? `${data.active_count} active · ${data.total_count} total stored` : undefined}
-            className="mb-3"
-          />
+      <div className="grid gap-6 lg:grid-cols-3">
+        {/* Main Event Timeline */}
+        <div className="lg:col-span-2 space-y-4">
+          <SectionHeaderPill icon={<BellRing size={16} />} title="Event Timeline" className="mb-2" />
+          
           {loading && !data ? (
-            <CardSkeleton />
+            <CardSkeleton className="h-[400px]" />
           ) : !data?.alerts.length ? (
-            <EmptyState
-              icon={<BellRing size={18} />}
-              title="No alerts"
-              message="No alert matches the current filter. Alerts appear when risk, air quality, temperature, humidity, pressure, rain, anomalies or sensor health cross their configured thresholds."
-            />
+            <div className="panel min-h-[400px] flex flex-col items-center justify-center p-8 text-center border-dashed border-2">
+              <div className="w-16 h-16 bg-emerald-50 dark:bg-emerald-500/10 rounded-full flex items-center justify-center mb-4 text-emerald-500">
+                <ShieldCheck size={32} />
+              </div>
+              <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-2">System Clear</h3>
+              <p className="text-slate-500 text-sm max-w-sm">No events match your current filters. Everything is operating normally.</p>
+            </div>
           ) : (
-            <ul className="space-y-2">
-              {data.alerts.map((alert) => (
-                <li
-                  key={alert.id}
-                  className={classNames(
-                    "rounded-xl border px-3 py-2.5",
-                    alert.is_active ? ALERT_CLASSES[String(alert.severity)] ?? ALERT_CLASSES.info : "border-slate-200/70 bg-slate-50/50 opacity-80 dark:border-slate-800/70 dark:bg-slate-900/30",
-                  )}
-                >
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-semibold text-slate-800 dark:text-slate-100">{alert.title}</span>
-                      <Chip severity={alert.severity === "critical" ? "critical" : alert.severity === "warning" ? "warning" : "info"}>
-                        {alert.severity}
-                      </Chip>
-                      {!alert.is_active ? <Chip severity="good">resolved</Chip> : null}
-                      {alert.acknowledged_at ? <Chip severity="info">acknowledged</Chip> : null}
+            <div className="space-y-4">
+              <AnimatePresence>
+                {data.alerts.map((alert, index) => (
+                  <motion.div
+                    key={alert.id}
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, height: 0 }}
+                    transition={{ delay: index * 0.05 }}
+                    className={classNames(
+                      "panel p-5 relative overflow-hidden transition-all hover:shadow-md",
+                      getSeverityStyles(String(alert.severity), Boolean(alert.is_active))
+                    )}
+                  >
+                    {/* Active Ping Indicator */}
+                    {alert.is_active && alert.severity === 'critical' && (
+                      <div className="absolute top-5 right-5 w-3 h-3">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-3 w-3 bg-rose-500"></span>
+                      </div>
+                    )}
+
+                    <div className="flex gap-4">
+                      <div className="mt-1">
+                        {getSeverityIcon(String(alert.severity))}
+                      </div>
+                      <div className="flex-1">
+                        <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-2 mb-1">
+                          <h3 className={classNames(
+                            "text-base font-bold",
+                            !alert.is_active ? "text-slate-600 dark:text-slate-400" : "text-slate-900 dark:text-white"
+                          )}>
+                            {alert.title}
+                          </h3>
+                          <span className="text-xs font-medium text-slate-500 uppercase tracking-widest whitespace-nowrap">
+                            {relativeTime(alert.last_seen_at ?? alert.triggered_at)}
+                          </span>
+                        </div>
+                        
+                        <p className={classNames(
+                          "text-sm mb-4 leading-relaxed",
+                          !alert.is_active ? "text-slate-500" : "text-slate-700 dark:text-slate-300"
+                        )}>
+                          {alert.message}
+                        </p>
+
+                        <div className="flex flex-wrap items-center gap-2 text-xs mb-4">
+                          <Chip severity={alert.is_active ? "warning" : "good"}>
+                            {alert.is_active ? "Active" : "Resolved"}
+                          </Chip>
+                          <span className="px-2 py-1 bg-white/50 dark:bg-black/20 rounded-md font-medium text-slate-600 dark:text-slate-400">
+                            {alert.category.replace(/_/g, " ")}
+                          </span>
+                          {alert.metric_value !== null && (
+                            <span className="px-2 py-1 bg-white/50 dark:bg-black/20 rounded-md font-medium text-slate-600 dark:text-slate-400 font-mono">
+                              Val: {Number(alert.metric_value).toFixed(2)}
+                            </span>
+                          )}
+                        </div>
+
+                        {alert.is_active && (
+                          <div className="flex items-center gap-3 pt-4 border-t border-slate-200/50 dark:border-white/10 mt-4">
+                            {!alert.acknowledged_at && (
+                              <button
+                                onClick={() => void act(alert, "acknowledge")}
+                                className="flex items-center gap-1.5 px-4 py-2 bg-white dark:bg-surface-800 rounded-lg text-sm font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-surface-700 transition-colors shadow-sm"
+                              >
+                                <Check size={16} className="text-cyan-500" /> Acknowledge
+                              </button>
+                            )}
+                            <button
+                              onClick={() => void act(alert, "resolve")}
+                              className="flex items-center gap-1.5 px-4 py-2 bg-slate-900 dark:bg-white rounded-lg text-sm font-semibold text-white dark:text-slate-900 hover:bg-slate-800 dark:hover:bg-slate-200 transition-colors shadow-sm"
+                            >
+                              <ShieldCheck size={16} /> Mark Resolved
+                            </button>
+                            
+                            {alert.recommended_action && (
+                              <span className="ml-auto text-xs font-medium text-slate-500 italic hidden sm:block">
+                                Tip: {alert.recommended_action}
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </div>
                     </div>
-                    <span className="text-[11px] text-slate-400">
-                      {relativeTime(alert.last_seen_at ?? alert.triggered_at)}
-                      {alert.occurrence_count > 1 ? ` · ×${alert.occurrence_count}` : ""}
-                    </span>
+                  </motion.div>
+                ))}
+              </AnimatePresence>
+            </div>
+          )}
+        </div>
+
+        {/* Sidebar: System Rules */}
+        <div className="space-y-4">
+          <SectionHeaderPill icon={<ShieldAlert size={16} />} title="Active Monitored Rules" className="mb-2" />
+          <div className="panel p-5 bg-slate-50/50 dark:bg-surface-900/30">
+            <ul className="space-y-4">
+              {(meta?.alert_rules ?? []).map((rule) => (
+                <li key={rule.id} className="border-b border-slate-200/50 dark:border-white/5 last:border-0 pb-4 last:pb-0">
+                  <div className="flex items-center justify-between gap-2 mb-1">
+                    <span className="text-sm font-bold text-slate-800 dark:text-slate-200">{rule.title}</span>
+                    <span className={classNames(
+                      "w-2 h-2 rounded-full",
+                      rule.severity === 'critical' ? 'bg-rose-500' : rule.severity === 'warning' ? 'bg-amber-500' : 'bg-sky-500'
+                    )} />
                   </div>
-                  <p className="mt-1.5 text-xs text-slate-600 dark:text-slate-300">{alert.message}</p>
-                  <div className="mt-1.5 flex flex-wrap items-center gap-3 text-[11px] text-slate-500 dark:text-slate-400">
-                    <span>category: {alert.category.replace(/_/g, " ")}</span>
-                    {alert.sensor ? <span>sensor: {alert.sensor.replace(/_/g, " ")}</span> : null}
-                    {alert.metric_value !== null ? <span className="tabular">value: {Number(alert.metric_value).toFixed(2)}</span> : null}
-                    {alert.risk_level ? <span>risk level {alert.risk_level}</span> : null}
-                  </div>
-                  {alert.recommended_action ? (
-                    <p className="mt-1.5 text-[11px] text-slate-500 dark:text-slate-400">→ {alert.recommended_action}</p>
-                  ) : null}
-                  {alert.is_active ? (
-                    <div className="mt-2 flex gap-2">
-                      {!alert.acknowledged_at ? (
-                        <button
-                          type="button"
-                          onClick={() => void act(alert, "acknowledge")}
-                          className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2 py-1 text-[11px] text-slate-600 transition hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
-                        >
-                          <Check size={11} />
-                          acknowledge
-                        </button>
-                      ) : null}
-                      <button
-                        type="button"
-                        onClick={() => void act(alert, "resolve")}
-                        className="rounded-lg border border-slate-200 px-2 py-1 text-[11px] text-slate-600 transition hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
-                      >
-                        resolve
-                      </button>
-                    </div>
-                  ) : null}
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mb-2 leading-relaxed">{rule.description}</p>
+                  <code className="text-[10px] font-mono text-cyan-600 dark:text-cyan-400 bg-cyan-50 dark:bg-cyan-500/10 px-2 py-1 rounded block truncate">
+                    {rule.condition}
+                  </code>
                 </li>
               ))}
             </ul>
-          )}
-        </Card>
-
-        <Card>
-          <SectionHeader
-            title="Alert rules"
-            subtitle="Loaded from the backend - the same definitions that actually fire"
-            icon={<ListChecks size={16} />}
-            className="mb-3"
-          />
-          <ul className="space-y-2">
-            {(meta?.alert_rules ?? []).map((rule) => (
-              <li key={rule.id} className="rounded-xl bg-slate-50/70 px-3 py-2 dark:bg-slate-900/40">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-xs font-semibold text-slate-700 dark:text-slate-200">{rule.title}</span>
-                  <Chip severity={rule.severity === "critical" ? "critical" : rule.severity === "warning" ? "warning" : "info"}>
-                    {rule.severity}
-                  </Chip>
-                </div>
-                <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">{rule.description}</p>
-                <p className="mt-1 text-[10px] text-slate-400">condition: {rule.condition}</p>
-              </li>
-            ))}
-          </ul>
-        </Card>
+          </div>
+        </div>
       </div>
     </div>
   );

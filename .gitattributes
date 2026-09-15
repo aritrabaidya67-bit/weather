@@ -1,0 +1,69 @@
+# ============================================================================
+#  Line endings and binary classification
+# ============================================================================
+#
+#  Why this file exists
+#    On Windows this repository is checked out with `core.autocrlf=true`, which
+#    converts LF to CRLF in the working tree. Without a `.gitattributes`, a
+#    contributor whose setting differs (or a tool that re-writes a file) re-adds
+#    the whole file with different line endings, producing a diff that touches
+#    every line while changing nothing. Declaring the policy here makes the
+#    stored form deterministic and independent of any machine's git config.
+#
+#  `text=auto` = "normalise to LF in the repository, let each platform have its
+#  own line endings in the working tree". Since every tracked file is already
+#  stored with LF, this changes no content - it only stops the drift.
+# ============================================================================
+
+# Default: text files are normalised to LF in the repository.
+* text=auto
+
+# Shell scripts must be LF even on Windows: CRLF makes them unrunnable under
+# bash (the shebang line gets a stray CR).
+*.sh text eol=lf
+*.bash text eol=lf
+
+# Python: the shebang matters for the same reason.
+*.py text eol=lf
+
+# Arduino sources: the IDE and the board toolchain both handle LF, and keeping
+# them LF stops them appearing as fully rewritten files.
+*.ino text eol=lf
+*.h text eol=lf
+
+# Source and documentation: normalise, keep the working tree's native endings.
+*.md text
+*.json text
+*.yml text
+*.yaml text
+*.toml text eol=lf
+*.css text
+*.html text
+*.js text
+*.mjs text
+*.ts text
+*.tsx text
+*.txt text
+
+# --- binary: never normalise, never diff as text ---------------------------
+*.db binary
+*.db-shm binary
+*.db-wal binary
+*.sqlite3 binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.svg text
+*.woff binary
+*.woff2 binary
+*.pdf binary
+*.zip binary
+
+# Lockfiles are generated but reviewed, and must keep consistent endings.
+package-lock.json text eol=lf
+
+# Keep these out of language statistics where it matters.
+*.min.js linguist-generated
+*.min.css linguist-generated
