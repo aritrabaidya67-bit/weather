@@ -1,0 +1,14 @@
+# Environmental Intelligence Platform - backend dependencies
+# Python 3.11+ (developed and verified on 3.14)
+
+fastapi>=0.115
+uvicorn[standard]>=0.30
+pydantic>=2.7
+pydantic-settings>=2.3
+SQLAlchemy>=2.0.30
+httpx>=0.27
+python-dotenv>=1.0
+
+# dev / test
+pytest>=8.2
+pytest-asyncio>=0.23

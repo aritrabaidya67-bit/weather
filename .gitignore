@@ -1,0 +1,52 @@
+# ---------------------------------------------------------------------------
+# Secrets - never commit real credentials. Only *.env.example is tracked.
+# ---------------------------------------------------------------------------
+.env
+.env.*
+!.env.example
+!*.env.example
+*.pem
+*.key
+
+# ---------------------------------------------------------------------------
+# Python
+# ---------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+venv/
+.venv/
+env/
+
+# ---------------------------------------------------------------------------
+# Node / frontend build output
+# ---------------------------------------------------------------------------
+node_modules/
+dist/
+build/
+*.tsbuildinfo
+
+# ---------------------------------------------------------------------------
+# Runtime data: local databases and logs (collected hardware data stays local)
+# ---------------------------------------------------------------------------
+backend/data/*.db
+backend/data/*.db-shm
+backend/data/*.db-wal
+backend/data/*.sqlite3
+data/
+logs/
+*.log
+
+# ---------------------------------------------------------------------------
+# OS / editor / tooling
+# ---------------------------------------------------------------------------
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+*.swp
+.freebuff/
