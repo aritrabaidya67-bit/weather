@@ -3,6 +3,12 @@
 Topics: ``reading``, ``risk``, ``anomaly``, ``alert``, ``prediction``, ``device``,
 ``system``. Both transports replay recent events so a client that reconnects (or
 an SSE client sending ``Last-Event-ID``) does not miss anything important.
+
+Authorization: the transports follow the same read policy as every other
+dashboard surface. With ``REQUIRE_AUTH_FOR_READS=false`` (the documented LAN
+demo default) any local client may subscribe; with it enabled, the WebSocket
+rejects the handshake (code 1008) and the SSE stream answers 401 unless a valid
+key is present (query parameter for the browser WebSocket API, header for SSE).
 """
 
 from __future__ import annotations
@@ -14,12 +20,22 @@ from typing import Annotated, Any, AsyncIterator
 from fastapi import APIRouter, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse
 
+from ...core.config import get_settings
 from ...core.logging import get_logger
 from ...core.realtime import TOPICS, bus
+from ...core.security import validate_chat_owner
 from ..deps import ReadAccessDep
 
 logger = get_logger("app.api.realtime")
 router = APIRouter(prefix="/realtime", tags=["realtime"])
+
+
+def _realtime_authorized(raw_key: str | None) -> bool:
+    """Realtime follows the dashboard read policy."""
+    settings = get_settings()
+    if not settings.require_auth_for_reads:
+        return True
+    return validate_chat_owner(raw_key, settings)
 
 
 def _parse_topics(raw: str | None) -> list[str]:
@@ -31,7 +47,7 @@ def _parse_topics(raw: str | None) -> list[str]:
 
 
 @router.get("/status", summary="Realtime bus status")
-def status(_: ReadAccessDep) -> dict[str, Any]:
+def bus_status(_: ReadAccessDep) -> dict[str, Any]:
     return {
         "subscribers": bus.subscriber_count,
         "topics": list(TOPICS),
@@ -44,6 +60,13 @@ def status(_: ReadAccessDep) -> dict[str, Any]:
 
 @router.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket) -> None:
+    if not _realtime_authorized(websocket.query_params.get("api_key")):
+        # Fail the handshake before accepting: no events, not even the greeting.
+        # The browser WebSocket API cannot send custom headers, hence the query
+        # parameter, validated exactly like the header form.
+        await websocket.close(code=1008)  # policy violation
+        logger.warning("websocket_unauthorized", client=str(websocket.client))
+        return
     topics = _parse_topics(websocket.query_params.get("topics"))
     try:
         last_event_id = int(websocket.query_params.get("last_event_id") or 0)
@@ -85,6 +108,7 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
 async def events(
     request: Request,
     _: ReadAccessDep,
+    api_key: Annotated[str | None, Query(description="API key when REQUIRE_AUTH_FOR_READS is enabled")] = None,
     topics: Annotated[str | None, Query(description="Comma separated topic list")] = None,
     last_event_id: Annotated[int, Query(ge=0)] = 0,
     limit: Annotated[

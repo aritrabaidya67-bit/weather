@@ -14,7 +14,7 @@ from fastapi import APIRouter
 from ...core.config import get_settings
 from ...schemas import DeviceListResponse, DeviceOut, RiskStateResponse
 from ...utils.timeutils import ensure_utc, utcnow
-from ..deps import ApiKeyDep, DeviceDep, ReadAccessDep, SessionDep
+from ..deps import AdminKeyDep, ApiKeyDep, DeviceDep, ReadAccessDep, SessionDep
 from ..services import AlertService, AnalyticsService, DeviceService, RiskService
 
 router = APIRouter(prefix="/device", tags=["device"])
@@ -88,8 +88,16 @@ def risk_state(
     )
 
 
-@router.delete("/{device_id}/readings", summary="Delete stored readings for a device (admin)")
-def purge(device_id: str, session: SessionDep, _: ApiKeyDep) -> dict[str, Any]:
+@router.delete(
+    "/{device_id}/readings",
+    summary="Delete stored readings for a device (ADMIN - requires ADMIN_API_KEY)",
+    description=(
+        "Destructive maintenance operation. It deliberately refuses the ordinary device key: "
+        "a credential that can POST sensor data must not also be able to erase the history. "
+        "Set ADMIN_API_KEY in backend/.env (a different random value) and send it as X-API-Key."
+    ),
+)
+def purge(device_id: str, session: SessionDep, _: AdminKeyDep) -> dict[str, Any]:
     from ...repositories import ReadingRepository
 
     repository = ReadingRepository(session)

@@ -43,6 +43,14 @@ WEAK_KEY_MARKERS: tuple[str, ...] = (
     "secret123",
     "password",
     "dev-local-key",
+    # Credentials that were once committed in this repository's tests/docs. They
+    # are public by definition, so they must never authenticate a real device or
+    # admin console even if someone copies them into `.env`.
+    "test-api-key",
+    "test-admin-key",
+    "admin-secret-key",
+    "smoke-api-key",
+    "smoke-admin-key",
 )
 
 #: Shortest device key the platform will accept. Below this, offline guessing
@@ -50,11 +58,27 @@ WEAK_KEY_MARKERS: tuple[str, ...] = (
 MIN_API_KEY_LENGTH = 16
 
 
-def _expected_keys(settings: Settings) -> list[str]:
-    keys = [settings.api_key]
+def _device_keys(settings: Settings) -> list[str]:
+    """Keys accepted for DEVICE operations (ingestion, risk-state)."""
+    return [settings.api_key] if settings.api_key else []
+
+
+def _admin_keys(settings: Settings) -> list[str]:
+    """Keys accepted for ADMIN operations (destructive/maintenance endpoints).
+
+    The admin key is its own credential: it must never be accepted as a device
+    key (an admin console has no reason to POST sensor data), and the device key
+    must never be accepted for admin operations (least privilege - a leaked
+    node credential must not grant the right to purge the database).
+    """
     if settings.admin_api_key:
-        keys.append(settings.admin_api_key)
-    return [key for key in keys if key]
+        return [settings.admin_api_key]
+    return []
+
+
+def _expected_keys(settings: Settings) -> list[str]:
+    """Union of all valid keys - only for strength checks, never for authz."""
+    return [key for key in (*_device_keys(settings), *_admin_keys(settings)) if key]
 
 
 def key_strength_problem(api_key: str | None) -> str | None:
@@ -97,20 +121,43 @@ def keys_are_configured(settings: Settings | None = None) -> bool:
     return key_strength_problem(settings.api_key) is None
 
 
-def validate_api_key(candidate: str | None, settings: Settings | None = None) -> bool:
-    """Constant-time comparison against every accepted key."""
+def validate_api_key(
+    candidate: str | None,
+    settings: Settings | None = None,
+    *,
+    admin: bool = False,
+) -> bool:
+    """Constant-time comparison against the keys accepted for the given scope.
+
+    ``admin=False`` accepts only the device key; ``admin=True`` accepts only the
+    admin key. The two credential sets are deliberately disjoint so that a
+    device credential can never exercise a privileged endpoint. An empty
+    candidate is rejected before any comparison so a header cannot "match" an
+    unset admin key.
+    """
     settings = settings or get_settings()
     if not candidate:
         return False
-    return any(secrets.compare_digest(candidate, key) for key in _expected_keys(settings))
+    expected = _admin_keys(settings) if admin else _device_keys(settings)
+    return any(secrets.compare_digest(candidate, key) for key in expected)
 
 
-async def require_api_key(
-    request: Request,
-    x_api_key: Annotated[str | None, Header(alias="X-API-Key")] = None,
-) -> str:
-    """Dependency protecting device-facing and mutating endpoints."""
-    settings = get_settings()
+def validate_chat_owner(candidate: str | None, settings: Settings | None = None) -> bool:
+    """True when the caller may read/clear chat sessions.
+
+    Chat transcripts may contain questions about the operator's environment, so
+    they are only for the holder of the *device* key (or the admin key when one
+    is configured for a separate console). Unauthenticated callers get 401; a
+    guessed or stolen session UUID alone grants nothing.
+    """
+    settings = settings or get_settings()
+    if not candidate:
+        return False
+    candidates = [*_device_keys(settings), *_admin_keys(settings)]
+    return any(secrets.compare_digest(candidate, key) for key in candidates)
+
+
+def _reject_weak_device_key(request: Request, settings: Settings) -> None:
     problem = key_strength_problem(settings.api_key)
     if problem:
         logger.warning("api_key_not_configured", reason=problem, path=request.url.path)
@@ -121,25 +168,74 @@ async def require_api_key(
                 f"{problem} See the API key section of backend/README.md."
             ),
         )
+
+
+def _log_rejection(request: Request, x_api_key: str | None, scope: str) -> None:
+    logger.warning(
+        "api_key_rejected",
+        scope=scope,
+        path=request.url.path,
+        client=request.client.host if request.client else None,
+        key_supplied=bool(x_api_key),
+    )
+
+
+async def require_api_key(
+    request: Request,
+    x_api_key: Annotated[str | None, Header(alias="X-API-Key")] = None,
+) -> str:
+    """Device-scope authentication: ingest and the firmware risk-state poll."""
+    settings = get_settings()
+    _reject_weak_device_key(request, settings)
     if not validate_api_key(x_api_key, settings):
-        logger.warning(
-            "api_key_rejected",
-            path=request.url.path,
-            client=request.client.host if request.client else None,
-            key_supplied=bool(x_api_key),
-        )
+        _log_rejection(request, x_api_key, "device")
         raise ApiKeyError("Invalid or missing API key.")
+    return x_api_key or ""
+
+
+async def require_admin_key(
+    request: Request,
+    x_api_key: Annotated[str | None, Header(alias="X-API-Key")] = None,
+) -> str:
+    """Admin-scope authorization for destructive/maintenance operations.
+
+    The device key is deliberately NOT accepted here. When no admin key is
+    configured the endpoint fails closed with 503 and names the remedy, so a
+    missing variable can never silently downgrade an admin surface to "any
+    device may purge the database".
+    """
+    settings = get_settings()
+    if not settings.admin_api_key:
+        logger.warning("admin_key_not_configured", path=request.url.path)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=(
+                "This endpoint requires ADMIN_API_KEY in backend/.env, which is not "
+                "configured. Destructive operations refuse to run with the device key "
+                "alone. Generate one with: "
+                'python -c "import secrets; print(secrets.token_urlsafe(32))"'
+            ),
+        )
+    if key_strength_problem(settings.admin_api_key):
+        logger.warning("admin_key_not_configured", path=request.url.path, reason="weak admin key")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="ADMIN_API_KEY is set but fails the strength policy. Generate a real one.",
+        )
+    if not validate_api_key(x_api_key, settings, admin=True):
+        _log_rejection(request, x_api_key, "admin")
+        raise ApiKeyError("Administrator privileges are required for this operation.")
     return x_api_key or ""
 
 
 async def optional_api_key(
     x_api_key: Annotated[str | None, Header(alias="X-API-Key")] = None,
 ) -> bool:
-    """For read endpoints that can optionally be locked down."""
+    """Read access when REQUIRE_AUTH_FOR_READS locks the dashboard down."""
     settings = get_settings()
     if not settings.require_auth_for_reads:
         return True
-    if not validate_api_key(x_api_key, settings):
+    if not validate_chat_owner(x_api_key, settings):
         raise ApiKeyError("Read access requires a valid API key.")
     return True
 
@@ -185,6 +281,7 @@ def client_identity(request: Request) -> str:
 
 _chat_limiter: RateLimiter | None = None
 _ingest_limiter: RateLimiter | None = None
+_chat_status_limiter: RateLimiter | None = None
 
 
 def get_chat_limiter() -> RateLimiter:
@@ -199,3 +296,17 @@ def get_ingest_limiter() -> RateLimiter:
     if _ingest_limiter is None:
         _ingest_limiter = RateLimiter(get_settings().ingest_rate_limit_per_minute)
     return _ingest_limiter
+
+
+def get_chat_status_limiter() -> RateLimiter:
+    """Lighter limiter for Ollama probes and other moderately costly reads.
+
+    ``/chat/status`` refreshes a live HTTP probe against Ollama, and
+    ``/chat/context`` re-renders the whole data snapshot. Both are cheap once per
+    browser but trivially abusable in a loop, so they get a bounded budget
+    instead of being either unlimited or starved by the main chat limiter.
+    """
+    global _chat_status_limiter
+    if _chat_status_limiter is None:
+        _chat_status_limiter = RateLimiter(60)
+    return _chat_status_limiter

@@ -162,21 +162,31 @@ def ws_probe(base_url: str, path: str, timeout: float = 8.0) -> tuple[str, str |
         return status, frame_data[index:index + length].decode(errors="replace")
 
 
-def load_device_key() -> str:
-    """Read the device API key without ever echoing it.
-
-    Precedence: ``SMOKE_API_KEY`` (run against an isolated instance launched with
-    its own key), then ``API_KEY`` from the environment, then ``backend/.env``.
-    """
-    explicit = os.environ.get("SMOKE_API_KEY") or os.environ.get("API_KEY")
+def _key_from_env_or_file(variable: str, explicit_env: str) -> str:
+    """Read a credential from the environment or ``backend/.env``, never echoing it."""
+    explicit = os.environ.get(explicit_env) or os.environ.get(variable)
     if explicit:
         return explicit
     for candidate in (Path(".env"), Path(__file__).resolve().parents[1] / ".env"):
         if candidate.exists():
             for line in candidate.read_text(encoding="utf-8").splitlines():
-                if line.strip().startswith("API_KEY="):
+                if line.strip().startswith(f"{variable}="):
                     return line.split("=", 1)[1].strip().strip('"').strip("'")
-    return os.environ.get("API_KEY", "")
+    return ""
+
+
+def load_device_key() -> str:
+    """The DEVICE key (ingestion + risk-state). Precedence: SMOKE_API_KEY, API_KEY, .env."""
+    return _key_from_env_or_file("API_KEY", "SMOKE_API_KEY")
+
+
+def load_admin_key() -> str:
+    """The ADMIN key for destructive endpoints. Precedence: SMOKE_ADMIN_KEY, ADMIN_API_KEY, .env.
+
+    Absence is a valid state: the destructive endpoints then fail closed with 503,
+    and the smoke test asserts exactly that instead of pretending otherwise.
+    """
+    return _key_from_env_or_file("ADMIN_API_KEY", "SMOKE_ADMIN_KEY")
 
 
 FIXTURE = {
@@ -203,8 +213,17 @@ def reading(**overrides) -> dict:
 
 def main() -> int:
     key = load_device_key()
+    admin_key = load_admin_key()
     print(f"Live smoke test against {BASE}")
     print(f"Device key loaded from .env: {'yes' if key else 'NO - device endpoints will 503'}")
+    print(
+        "Admin key loaded from .env: "
+        + (
+            "yes"
+            if admin_key
+            else "NO - destructive endpoints are expected to fail closed (503)"
+        )
+    )
     print()
 
     # ---------------------------------------------------------------- liveness
@@ -253,8 +272,41 @@ def main() -> int:
     check("ingest with a wrong key is 401", status == 401, str(status))
     status, _, _ = http("GET", "/device/live-smoke-node/risk-state")
     check("risk-state without a key is 401", status == 401, str(status))
-    status, _, _ = http("DELETE", "/device/live-smoke-node/readings")
-    check("destructive purge without a key is 401", status == 401, str(status))
+
+    # The admin boundary: without ADMIN_API_KEY the destructive endpoint fails
+    # CLOSED (503 naming the remedy); with one configured, the device key is
+    # still refused and only the admin key works.
+    status, detail, _ = http("DELETE", "/device/live-smoke-node/readings")
+    if admin_key:
+        check("destructive purge without a key is 401", status == 401, str(status))
+        status, _, _ = http("DELETE", "/device/live-smoke-node/readings", key=key)
+        check("destructive purge with the DEVICE key is refused", status == 401, str(status))
+        status, purged, _ = http("DELETE", "/device/live-smoke-node/readings", key=admin_key)
+        check("destructive purge with the ADMIN key is accepted", status == 200, str(status))
+    else:
+        check(
+            "destructive purge fails closed (503) when ADMIN_API_KEY is not configured",
+            status == 503,
+            f"{status} {str(detail)[:120]}",
+        )
+        check(
+            "the 503 names the missing variable so the fix is obvious",
+            isinstance(detail, dict) and "ADMIN_API_KEY" in str(detail.get("detail", "")),
+        )
+        status, _, _ = http("DELETE", "/device/live-smoke-node/readings", key=key)
+        check(
+            "the device key is never accepted for a destructive operation",
+            status in {401, 503},
+            str(status),
+        )
+
+    # Security headers, on the live middleware stack.
+    _, _, headers = http("GET", "/health")
+    check("X-Content-Type-Options: nosniff", headers.get("x-content-type-options") == "nosniff",
+          str(headers.get("x-content-type-options")))
+    check("X-Frame-Options: DENY", headers.get("x-frame-options") == "DENY")
+    check("Referrer-Policy: no-referrer", headers.get("referrer-policy") == "no-referrer")
+    check("a Content-Security-Policy is present", "default-src 'self'" in headers.get("content-security-policy", ""))
 
     # ------------------------------------------------------------------- CORS
     print("\n== CORS policy (live middleware)")
@@ -506,11 +558,19 @@ def main() -> int:
 
     # ------------------------------------------------------------------ cleanup
     print("\n== Cleanup (live database left as found)")
-    status, purged, _ = http("DELETE", "/device/live-smoke-node/readings", key=key)
-    check("smoke-test readings purged", status == 200 and purged.get("deleted_readings", 0) > 0,
-          str(purged))
-    history = http("GET", "/sensors/history?hours=24&device_id=live-smoke-node")[1]
-    check("no smoke-test readings remain", history.get("count") == 0, str(history.get("count")))
+    if admin_key:
+        status, purged, _ = http("DELETE", "/device/live-smoke-node/readings", key=admin_key)
+        check("smoke-test readings purged with the admin key",
+              status == 200 and purged.get("deleted_readings", 0) > 0, str(purged))
+        history = http("GET", "/sensors/history?hours=24&device_id=live-smoke-node")[1]
+        check("no smoke-test readings remain", history.get("count") == 0, str(history.get("count")))
+    else:
+        # Without an admin key the purge endpoint is (correctly) unavailable, so
+        # the rows are left behind on purpose. Say so rather than failing.
+        print(
+            "  SKIP  purge needs ADMIN_API_KEY; the smoke-test rows stay in the live "
+            "database. Remove them manually or run with ADMIN_API_KEY set."
+        )
 
     return report()
 

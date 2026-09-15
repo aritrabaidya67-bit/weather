@@ -4,19 +4,36 @@ Base URL `http://<host>:8000/api/v1` · interactive docs at `/docs` · schema at
 
 ## Conventions
 
-* **Auth** — device/write endpoints require the header `X-API-Key: <API_KEY>`.
-  Read endpoints are open by default; set `REQUIRE_AUTH_FOR_READS=true` to
-  require the same header everywhere. A missing **or** wrong key → `401` with
-  `WWW-Authenticate: X-API-Key` (the server never distinguishes the two to the
-  caller, and the comparison is constant-time). A server whose `API_KEY` is
-  unset, still a template value, shorter than 16 characters or obviously weak →
-  `503`, naming the reason, rather than accepting a key anyone could forge.
+* **Auth — authorization scopes.** Every endpoint has exactly one declared
+  access level:
+
+  | Scope | Endpoints | Credential |
+  | --- | --- | --- |
+  | Public read | `/health`, `/status`, `/meta`, all dashboard GETs | none by default |
+  | Device | `POST /sensors/data`, `POST /sensors/heartbeat`, `GET /device/{id}/risk-state` | `X-API-Key: <API_KEY>` |
+  | Chat data | `GET/DELETE /chat/history/{id}`, `GET /chat/context/{id}`, `POST /alerts/{id}/acknowledge\|resolve` | follows the read policy (below) |
+  | Admin | `DELETE /device/{id}/readings` | `X-API-Key: <ADMIN_API_KEY>` (separate value, never the device key) |
+
+  Read endpoints are open by default; `REQUIRE_AUTH_FOR_READS=true` requires a
+  valid key for every read, chat-data and realtime surface. A missing **or**
+  wrong key → `401` with `WWW-Authenticate: X-API-Key` (the server never
+  distinguishes the two, and the comparison is constant-time). A server whose
+  key is unset, still a template value, shorter than 16 characters or obviously
+  weak → `503`, naming the reason, rather than accepting a key anyone could
+  forge. Admin endpoints without `ADMIN_API_KEY` configured → `503` naming the
+  remedy (fail closed); the device key is never accepted there, and the admin
+  key is never accepted for device endpoints.
+* **Rate limits** — ingestion 600/min, chat 20/min, Ollama probes and forecast
+  snapshots 60/min per client IP. `429` with `Retry-After` when exceeded.
+* **Security headers** — every response carries `X-Content-Type-Options: nosniff`,
+  `Referrer-Policy: no-referrer`, `X-Frame-Options: DENY` and a conservative CSP.
 * **CORS** — only the origins listed in `CORS_ORIGINS` may call the API from a
   browser; a `*` entry is ignored rather than honoured. `CORS_ALLOW_LAN_ORIGINS=true`
   additionally accepts private-range origins (RFC1918) for a same-network demo.
   `allow_credentials` is off: there is no cookie or session auth to leak.
 * **Errors** — `{"success": false, "error": "...", "detail": "...", "timestamp": "..."}`.
-  Validation failures return FastAPI's `422` with the offending field.
+  Validation failures return FastAPI's `422` with the offending field; unhandled
+  errors return a generic `500` (no stack traces, paths or SQL).
 * **Timestamps** — UTC ISO-8601 everywhere. `timestamp` is when the device says
   it measured; `received_at` is when the backend stored it.
 * **Units** — `degC`, `%RH`, `hPa`, `idx` (relative 0–100 air-quality index),

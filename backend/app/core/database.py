@@ -19,7 +19,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 from sqlalchemy.types import TypeDecorator
 
-from .config import get_settings
+from .config import BACKEND_DIR, get_settings
 from .logging import get_logger
 
 logger = get_logger("app.database")
@@ -145,13 +145,51 @@ def describe_database() -> dict[str, Any]:
     }
 
 
+def run_migrations() -> None:
+    """Apply every pending Alembic migration, or raise.
+
+    Used when ``RUN_MIGRATIONS_ON_STARTUP=true``. A failure is fatal on purpose:
+    serving requests against a half-migrated schema is worse than not starting.
+    """
+    from alembic import command
+    from alembic.config import Config as AlembicConfig
+
+    ini_path = BACKEND_DIR / "alembic.ini"
+    if not ini_path.exists():  # pragma: no cover - packaging mistake
+        raise RuntimeError(f"alembic.ini not found at {ini_path}; cannot migrate.")
+    alembic_config = AlembicConfig(str(ini_path))
+    # The URL itself is resolved inside alembic/env.py from the app settings, so
+    # migrations and the API can never target different databases.
+    command.upgrade(alembic_config, "head")
+    logger.info("database_migrations_applied", revision="head")
+
+
 def init_db() -> None:
-    """Create tables (idempotent) and import models so they register."""
+    """Prepare the schema: Alembic migrations, or ``create_all`` for development.
+
+    Two deliberate paths:
+
+    * ``RUN_MIGRATIONS_ON_STARTUP=true`` -> ``alembic upgrade head`` (production;
+      upgrade path, downgrade available, no silent destructive change)
+    * default -> ``Base.metadata.create_all`` (zero-setup development and tests),
+      logged as such so the difference is never a surprise
+    """
     from .. import models  # noqa: F401  (registers ORM classes)
 
+    settings = get_settings()
+    if settings.run_migrations_on_startup:
+        run_migrations()
+        return
     engine = get_engine()
     Base.metadata.create_all(bind=engine)
-    logger.info("database_initialised", tables=len(Base.metadata.tables))
+    logger.info(
+        "database_initialised",
+        tables=len(Base.metadata.tables),
+        note=(
+            "create_all (development default). Set RUN_MIGRATIONS_ON_STARTUP=true (or "
+            "run `alembic upgrade head`) for a managed, upgradeable schema."
+        ),
+    )
 
 
 def reset_engine() -> None:

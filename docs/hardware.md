@@ -160,19 +160,76 @@ an unsupported sensor selection and a duplicated pin each fail the build. It
 verifies syntax, API usage and the pin map; it does **not** read a sensor or
 upload anything, and it is not a substitute for flashing the board.
 
-## Bring-up checklist
+## Bring-up checklist (must be performed on real hardware)
 
-1. Wire everything with the power off; double-check `3V3` vs `5V` rails.
-2. Set `TEMP_HUMIDITY_SENSOR` in `config.h` to match the part you actually wired.
-3. Flash the sketch — the boot lamp test lights each LED on its own in sequence
-   and beeps once, which proves the indicator wiring before any data exists. The
-   serial monitor then prints the pin map the firmware compiled with.
-4. Open the serial monitor (115200) and confirm the sensor line, the pin map and
-   the Wi-Fi/IP lines.
-5. Send a reading and confirm `Payload accepted ... - risk L…`.
-6. Cover the LDR / wet the rain board / breathe near the MQ-135 and watch the
-   dashboard values change in step with the serial log.
-7. Verify the LED count matches the risk level shown on the dashboard, and that
-   level 5 triggers the alarm pattern.
-8. Unplug the network and confirm the indicators blink (fail-visible, not
-   silently stale).
+None of the items below has been executed: no UNO R4 toolchain or physical sensors
+were available while this firmware was written. They are the tasks that remain
+between "the code is sound" and "the node works", stated so they can be run as a
+list rather than discovered one at a time. Do not report the node as validated
+until each one produces the observation in the right-hand column.
+
+### A. Toolchain and static pre-flight (no board needed)
+
+| # | Step | Expected |
+| --- | --- | --- |
+| A1 | `bash arduino/static_check/run.sh` | 4 PASS (both sensor builds + both negative cases) |
+| A2 | `cp config.example.h config.h`, then set `WIFI_SSID`, `WIFI_PASSWORD`, `BACKEND_HOST` (PC LAN IP, never `localhost`), `API_KEY` = `backend/.env` `API_KEY`, `DEVICE_ID` = `DEVICE_ID` | file exists, is git-ignored (`git status` stays clean) |
+| A3 | Install the **Arduino UNO R4 Boards** core + the three libraries from `arduino/README.md` | Board manager shows the core; `WiFiS3`/`Wire` resolve |
+| A4 | Compile **without uploading** (Sketch → Verify) for *Arduino UNO R4 WiFi* | 0 errors; note the flash/RAM figures |
+| A5 | Recompile after switching `TEMP_HUMIDITY_SENSOR` to the other value | 0 errors (both configurations must build) |
+
+### B. Power-on, clock and wiring
+
+| # | Step | Expected observation |
+| --- | --- | --- |
+| B1 | Power up with the serial monitor at 115200 | Banner, sensor line, pin map line, Wi-Fi line with an IP |
+| B2 | Watch the boot lamp test | LEDs 1→5 light **one at a time in sequence**, then one short beep |
+| B3 | Compare the `Pin map:` line with the table above | Identical pins; a mismatch means the wiring or `config.h` is wrong |
+| B4 | Confirm the node learned the wall clock | `Clock synchronised with the backend server time`, and `timestamp` present in the POST |
+| B5 | Confirm the first POST is accepted | `Payload accepted (id …) - risk L… …/100` within one interval |
+
+### C. Sensor truth (compare against an independent reference)
+
+| # | Step | Expected observation |
+| --- | --- | --- |
+| C1 | Temperature/humidity vs a second thermometer/hygrometer | Within the part's accuracy (±0.5 °C / ±2–5 %RH); **never** ~1152 %RH (that is a DHT12 on `D2`) |
+| C2 | BMP280 vs a local weather report | Pressure within a few hPa; temperature agrees with the DHT within ~1 °C |
+| C3 | Rain board: dry, then water droplets on the tracks | `rain_status` goes dry → light/rain; `rain_pct` rises; **calibrate** `RAIN_DRY_ADC`/`RAIN_WET_ADC` if the crossover is wrong |
+| C4 | LDR: cover it, then a bright light | `light_pct` low then high; `light_status` follows |
+| C5 | MQ-135 after the 24 h burn-in, clean air vs alcohol/CO₂ source | Relative index rises then returns; it must **never** be read as ppm |
+
+### D. Indicators (backend-driven)
+
+| # | Step | Expected observation |
+| --- | --- | --- |
+| D1 | Healthy reading | LED count == `risk_level` on the dashboard; buzzer silent at L1/L2 |
+| D2 | Force a high band (e.g. hold the MQ-135 near a source, or POST a hot reading) | Level rises on the dashboard and the LED count/buzzer pattern follow within one interval |
+| D3 | Drive level 5 | All five LEDs lit and the repeating critical alarm |
+| D4 | Level 3 and 4 | One beep per minute; two beeps per 30 s |
+| D5 | Before the first assessment (fresh backend/DB) | LED 1 pulses slowly — alive, no verdict yet |
+
+### E. Failure modes (the part that decides whether the node is trustworthy)
+
+| # | Fault injected | Expected behaviour — and it must recover afterwards |
+| --- | --- | --- |
+| E1 | Stop the backend (`Ctrl-C`) | Indicators **blink** the last level instead of showing a stale solid value; buzzer keeps its pattern; serial logs the TCP failure, then only every 10th |
+| E2 | Restart the backend | Node reconnects on its own; `Backend reachable again after N failures`; solid indication returns |
+| E3 | Turn the AP / phone hotspot off, then on | Wi-Fi association retries with the configured timeout; no reboot needed; IP re-obtained |
+| E4 | One sensor unplugged (e.g. DHT data line) | That channel is absent from the payload and listed in `sensors_missing`; **other channels keep reporting**; no fabricated value |
+| E5 | All sensors unplugged | No POST is sent (an empty payload would be rejected); serial escalates `SENSOR_FAILURE_LIMIT` times, then says what to check |
+| E6 | Wrong `API_KEY` (backend key changed) | `HTTP 401` logged once per attempt, **without ever printing the key** |
+| E7 | Backend returns 422 (e.g. an out-of-range value) | The response body is logged and the node keeps running |
+| E8 | Very long run (hours) | No memory corruption/reboot; sequence numbers keep incrementing; loop stays responsive (LEDs keep blinking) |
+| E9 | Power-cycle mid-operation | Node reboots, re-syncs the clock, and resumes; the backend treats the restarted sequence as a new run |
+
+### F. Dashboard agreement
+
+| # | Step | Expected observation |
+| --- | --- | --- |
+| F1 | Open the dashboard while the node posts | Live tiles update without a refresh; the WebSocket reports `live` |
+| F2 | Compare a serial reading with `GET /sensors/latest` | Identical values — the backend stores what the node measured |
+| F3 | Compare the dashboard risk with the serial `risk L…` | Identical level and label (one risk model, no re-derivation on the device) |
+
+Record the firmware version, the board, the sensor configuration and the
+observations; attach the serial log. Anything you did not run stays unverified -
+say so rather than implying it passed.

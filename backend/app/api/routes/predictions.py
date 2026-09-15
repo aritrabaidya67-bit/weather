@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from typing import Annotated, Any
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Query, Request, status
 
+from ...core.security import client_identity, get_ingest_limiter
 from ...schemas import PredictionAccuracyResponse, PredictionHistoryResponse, PredictionResponse
 from ..deps import DeviceDep, ReadAccessDep, SessionDep
 from ..services import PredictionService
@@ -25,6 +26,7 @@ router = APIRouter(prefix="/predictions", tags=["predictions"])
     ),
 )
 def forecast(
+    request: Request,
     session: SessionDep,
     _: ReadAccessDep,
     device_id: DeviceDep,
@@ -40,6 +42,18 @@ def forecast(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail="horizons must be a comma separated list of minutes (1-240).",
             ) from None
+    if persist:
+        # Persisting a snapshot writes a row; a loop against this flag must not
+        # be able to fill the database unauthenticated, so it borrows the
+        # ingestion rate-limit budget (which is far above any dashboard's needs).
+        limiter = get_ingest_limiter()
+        allowed, retry_after = limiter.check(f"forecast-persist:{client_identity(request)}")
+        if not allowed:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Too many forecast snapshot requests. Please wait a moment.",
+                headers={"Retry-After": str(int(retry_after) + 1)},
+            )
     result = PredictionService(session).forecast(device_id, horizons=parsed, persist=persist)
     if persist:
         # Forecast snapshots are only written when explicitly requested; commit

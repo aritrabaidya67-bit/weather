@@ -1,4 +1,10 @@
-"""Alert centre endpoints."""
+"""Alert centre endpoints.
+
+Reading alerts follows the dashboard read policy; acknowledging or resolving an
+alert is a *mutation* and additionally requires a valid device or admin key via
+``ChatOwnerDep`` (the browser supplies none by default, so the demo flow keeps
+working, but REQUIRE_AUTH_FOR_READS=true locks the whole surface down).
+"""
 
 from __future__ import annotations
 
@@ -7,7 +13,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, HTTPException, Query, status
 
 from ...schemas import AlertListResponse, AlertRuleOut
-from ..deps import DeviceIdQuery, HoursQuery, ReadAccessDep, SessionDep
+from ..deps import ChatOwnerDep, DeviceIdQuery, HoursQuery, ReadAccessDep, SessionDep
 from ..services import ALERT_RULES, AlertService
 
 router = APIRouter(prefix="/alerts", tags=["alerts"])
@@ -54,7 +60,7 @@ def list_alerts(
 
 
 @router.post("/{alert_id}/acknowledge", summary="Acknowledge an alert")
-def acknowledge(alert_id: int, session: SessionDep, _: ReadAccessDep) -> dict[str, Any]:
+def acknowledge(alert_id: int, session: SessionDep, _: ChatOwnerDep) -> dict[str, Any]:
     service = AlertService(session)
     result = service.acknowledge(alert_id)
     if result is None:
@@ -64,7 +70,7 @@ def acknowledge(alert_id: int, session: SessionDep, _: ReadAccessDep) -> dict[st
 
 
 @router.post("/{alert_id}/resolve", summary="Manually resolve an alert")
-def resolve(alert_id: int, session: SessionDep, _: ReadAccessDep) -> dict[str, Any]:
+def resolve(alert_id: int, session: SessionDep, _: ChatOwnerDep) -> dict[str, Any]:
     from ...utils.timeutils import utcnow
 
     service = AlertService(session)

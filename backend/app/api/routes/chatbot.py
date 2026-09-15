@@ -12,13 +12,13 @@ import json
 import uuid
 from typing import Any, AsyncIterator
 
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, HTTPException, Path, Query, Request, status
 from fastapi.responses import StreamingResponse
 
 from ...core.config import get_settings
 from ...core.database import session_scope
 from ...core.logging import get_logger
-from ...core.security import client_identity, get_chat_limiter
+from ...core.security import client_identity, get_chat_limiter, get_chat_status_limiter
 from ...schemas import (
     ChatHistoryResponse,
     ChatRequest,
@@ -26,8 +26,20 @@ from ...schemas import (
     ChatStatusResponse,
     SuggestedQuestionsResponse,
 )
-from ..deps import SessionDep, resolve_device_id
+from ..deps import ChatOwnerDep, SessionDep, resolve_device_id
 from ..services import ChatbotService, get_ollama_client
+
+
+def _enforce_chat_status_budget(request: Request) -> None:
+    """Rate-limit the moderately expensive chat support endpoints."""
+    limiter = get_chat_status_limiter()
+    allowed, retry_after = limiter.check(client_identity(request))
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many requests. Please wait a moment.",
+            headers={"Retry-After": str(int(retry_after) + 1)},
+        )
 
 logger = get_logger("app.api.chat")
 router = APIRouter(prefix="/chat", tags=["chatbot"])
@@ -38,14 +50,15 @@ def _session_id(request: ChatRequest) -> str:
 
 
 @router.get("/status", response_model=ChatStatusResponse, summary="Ollama availability and detected model")
-async def chat_status(session: SessionDep) -> Any:
+async def chat_status(request: Request, session: SessionDep) -> Any:
+    _enforce_chat_status_budget(request)
     client = get_ollama_client()
     status_snapshot = await client.status(refresh=True)
     return ChatbotService(session, client=client).diagnostics(status_snapshot.as_dict())
 
 
 @router.post("", response_model=ChatResponse, summary="Ask a question about the environment data")
-async def chat(session: SessionDep, request: ChatRequest, http_request: Request) -> Any:
+async def chat(session: SessionDep, request: ChatRequest, http_request: Request, _: ChatOwnerDep) -> Any:
     limiter = get_chat_limiter()
     allowed, retry_after = limiter.check(client_identity(http_request))
     if not allowed:
@@ -79,7 +92,7 @@ async def chat(session: SessionDep, request: ChatRequest, http_request: Request)
     summary="Streaming chat answer (Server-Sent Events style NDJSON)",
     response_class=StreamingResponse,
 )
-async def chat_stream(request: ChatRequest, http_request: Request) -> Any:
+async def chat_stream(request: ChatRequest, http_request: Request, _: ChatOwnerDep) -> Any:
     limiter = get_chat_limiter()
     allowed, retry_after = limiter.check(client_identity(http_request))
     if not allowed:
@@ -123,7 +136,13 @@ async def chat_stream(request: ChatRequest, http_request: Request) -> Any:
 
 
 @router.get("/suggestions", response_model=SuggestedQuestionsResponse, summary="Context-aware suggested questions")
-def suggestions(session: SessionDep, device_id: str | None = None) -> Any:
+def suggestions(
+    request: Request,
+    session: SessionDep,
+    _: ChatOwnerDep,
+    device_id: str | None = None,
+) -> Any:
+    _enforce_chat_status_budget(request)
     resolved = resolve_device_id(session, device_id)
     return {
         "questions": ChatbotService(session).suggested_questions(resolved),
@@ -131,19 +150,51 @@ def suggestions(session: SessionDep, device_id: str | None = None) -> Any:
     }
 
 
-@router.get("/history/{session_id}", response_model=ChatHistoryResponse, summary="Stored conversation")
-def history(session_id: str, session: SessionDep) -> Any:
+@router.get(
+    "/history/{session_id}",
+    response_model=ChatHistoryResponse,
+    summary="Stored conversation",
+    description=(
+        "Requires a valid device or admin API key. Chat transcripts are operator data: "
+        "knowing a session id alone is not authorization."
+    ),
+)
+def history(
+    request: Request,
+    session: SessionDep,
+    _: ChatOwnerDep,
+    session_id: str = Path(max_length=64),
+) -> Any:
     return ChatbotService(session).history(session_id)
 
 
-@router.delete("/history/{session_id}", summary="Clear a stored conversation")
-def clear(session_id: str, session: SessionDep) -> dict[str, Any]:
+@router.delete(
+    "/history/{session_id}",
+    summary="Clear a stored conversation",
+    description="State-mutating operation: requires a valid device or admin API key.",
+)
+def clear(
+    request: Request,
+    session: SessionDep,
+    _: ChatOwnerDep,
+    session_id: str = Path(max_length=64),
+) -> dict[str, Any]:
     removed = ChatbotService(session).clear(session_id)
     return {"success": True, "session_id": session_id, "deleted_messages": removed}
 
 
-@router.get("/context/{device_id}", summary="The exact structured context sent to the model (debugging)")
-def context(device_id: str, session: SessionDep) -> dict[str, Any]:
+@router.get(
+    "/context/{device_id}",
+    summary="The exact structured context sent to the model (debugging)",
+    description="Requires a valid device or admin API key: this is the full platform data snapshot.",
+)
+def context(
+    request: Request,
+    session: SessionDep,
+    _: ChatOwnerDep,
+    device_id: str = Path(min_length=3, max_length=64),
+) -> dict[str, Any]:
+    _enforce_chat_status_budget(request)
     service = ChatbotService(session)
     snapshot = service.build_context(device_id)
     settings = get_settings()

@@ -16,7 +16,7 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-from .conftest import TEST_API_KEY, auth_headers, post_reading
+from .conftest import TEST_ADMIN_KEY, TEST_API_KEY, auth_headers, post_reading
 
 
 # --------------------------------------------------------------------------- #
@@ -54,8 +54,28 @@ def test_strong_keys_pass_the_policy_check():
     from app.core.security import key_strength_problem
 
     assert key_strength_problem(TEST_API_KEY) is None
+    assert key_strength_problem(TEST_ADMIN_KEY) is None
     # A realistic generated key, as documented in the README.
     assert key_strength_problem("kJ8x-Q2m7vT4pR9wZ1nL6sB3cF0yH5dG") is None
+
+
+@pytest.mark.parametrize(
+    "published",
+    [
+        # Literals that were committed in this repository's tests and docs. They
+        # are public, so they must never be usable as a real credential.
+        "test-api-key-1234567890",
+        "test-admin-key-1234567890",
+        "admin-secret-key-0123456789abcdef",
+        "smoke-api-key-1234567890",
+        "smoke-admin-key-1234567890",
+    ],
+)
+def test_credentials_published_in_the_repository_are_blacklisted(published):
+    """Rotation guard: a leaked literal stays unusable even if copied into .env."""
+    from app.core.security import key_strength_problem
+
+    assert key_strength_problem(published) is not None
 
 
 def test_ingest_returns_503_and_names_the_reason_when_the_key_is_a_template(client):
@@ -342,16 +362,44 @@ def test_empty_database_serves_honest_states_not_errors(client):
 
 
 def test_device_purge_removes_only_that_devices_readings(client):
+    """Purge is destructive: it needs ADMIN_API_KEY, not the device key.
+
+    The original version of this test accepted the device key - that privilege
+    escalation is exactly what the hardening pass removed (see
+    test_authorization_and_hardening.py for the full admin/device separation
+    matrix).
+    """
+    from app.core.config import get_settings
+
     post_reading(client, sequence=1)
     post_reading(client, sequence=2)
     assert client.get("/api/v1/sensors/history", params={"hours": 1}).json()["count"] == 2
 
-    response = client.delete("/api/v1/device/arduino-r4-wifi-01/readings", headers=auth_headers())
-    assert response.status_code == 200
-    assert response.json()["deleted_readings"] == 2
-    assert client.get("/api/v1/sensors/history", params={"hours": 1}).json()["count"] == 0
-    # Purge requires the key: it is destructive.
-    assert client.delete("/api/v1/device/arduino-r4-wifi-01/readings").status_code == 401
+    # No admin key configured: fail closed with 503 naming the remedy.
+    unconfigured = client.delete("/api/v1/device/arduino-r4-wifi-01/readings")
+    assert unconfigured.status_code == 503
+    # The device key is not an admin credential: without an admin key the
+    # endpoint 503s regardless of what credential is presented.
+    device_key = client.delete(
+        "/api/v1/device/arduino-r4-wifi-01/readings", headers=auth_headers()
+    )
+    assert device_key.status_code == 503
+
+    from .conftest import TEST_ADMIN_KEY
+
+    settings = get_settings()
+    original = settings.admin_api_key
+    settings.admin_api_key = TEST_ADMIN_KEY
+    try:
+        response = client.delete(
+            "/api/v1/device/arduino-r4-wifi-01/readings",
+            headers={"X-API-Key": settings.admin_api_key},
+        )
+        assert response.status_code == 200
+        assert response.json()["deleted_readings"] == 2
+        assert client.get("/api/v1/sensors/history", params={"hours": 1}).json()["count"] == 0
+    finally:
+        settings.admin_api_key = original
 
 
 def test_client_is_never_given_the_device_key(client):

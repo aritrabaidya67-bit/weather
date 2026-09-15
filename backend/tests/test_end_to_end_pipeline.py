@@ -163,7 +163,11 @@ def test_low_light_reporting_drives_the_light_channel(client) -> None:
     """Values must survive the whole path unchanged (no unit or scaling drift)."""
     model = EnvironmentSimulator("clear_day", seed=8, device_id="arduino-r4-wifi-01")
     payload = model.step(15)
-    response = client.post("/api/v1/sensors/data", json=payload, headers={"X-API-Key": "test-api-key-1234567890"})
+    from .conftest import TEST_API_KEY as _device_key
+
+    response = client.post(
+        "/api/v1/sensors/data", json=payload, headers={"X-API-Key": _device_key}
+    )
     assert response.status_code == 200, response.text
     stored = client.get("/api/v1/sensors/latest").json()
     assert stored["temperature_c"] == pytest.approx(payload["temperature_c"], abs=0.05)

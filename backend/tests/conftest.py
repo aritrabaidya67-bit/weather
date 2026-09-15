@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import secrets
 import sys
 import tempfile
 from collections.abc import Iterator
@@ -14,7 +15,15 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-TEST_API_KEY = "test-api-key-1234567890"
+#: The device key used by the suite is generated per run and never committed.
+#: A literal test credential in the repository is a real risk: it is public, so
+#: copying it into `.env` (or reusing it as the admin key) would hand an attacker
+#: the deployment's credential. A random value cannot be reused by accident, and
+#: the previously published literals are blacklisted in
+#: ``app.core.security.WEAK_KEY_MARKERS``.
+TEST_API_KEY = f"device-{secrets.token_urlsafe(24)}"
+#: Same reasoning for the admin-scope credential used by the auth tests.
+TEST_ADMIN_KEY = f"admin-{secrets.token_urlsafe(24)}"
 
 
 @pytest.fixture(scope="session", autouse=True)

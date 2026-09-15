@@ -19,8 +19,9 @@ from ..services import ALERT_RULES, AlertService, DeviceService, RiskService, ge
 
 logger = get_logger("app.api.health")
 router = APIRouter(tags=["system"])
-
 STARTED_AT = utcnow()
+#: Keep in one place so the root payload, /health and /meta never disagree.
+APP_VERSION = "1.0.0"
 
 
 def local_addresses() -> list[str]:
@@ -58,8 +59,12 @@ def health(session: SessionDep) -> dict[str, Any]:
             "readings": repository.count(),
         }
     except Exception as exc:  # noqa: BLE001 - health must always answer
+        # The exception text can contain connection strings/paths; the client
+        # only needs the fact and the class. Details stay in the server log.
+        logger.warning("health_database_check_failed", error_type=type(exc).__name__)
+        logger.debug("health_database_check_detail", exc_info=True)
         database_status = "error"
-        database_detail = {"error": str(exc)}
+        database_detail = {"error": f"{type(exc).__name__} (see server logs)"}
 
     device = DeviceService(session).status(resolve_device_id(session, None), include_sensor_health=False)
     ollama_status = _ollama_status_sync()
@@ -73,7 +78,7 @@ def health(session: SessionDep) -> dict[str, Any]:
     overall = "ok" if database_status == "ok" else "degraded"
     return {
         "status": overall,
-        "version": "1.0.0",
+        "version": APP_VERSION,
         "environment": settings.environment,
         "uptime_seconds": round(seconds_between(utcnow(), STARTED_AT), 1),
         "server_time": utcnow().isoformat(),
@@ -131,7 +136,7 @@ def meta(session: SessionDep) -> dict[str, Any]:
         recommended = f"http://{addresses[-1]}:{settings.backend_port}"
     return {
         "app_name": settings.app_name,
-        "version": "1.0.0",
+        "version": APP_VERSION,
         "environment": settings.environment,
         "server_time": utcnow().isoformat(),
         "api_version": "v1",

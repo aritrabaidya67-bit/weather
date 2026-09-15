@@ -122,12 +122,14 @@ Backend (`backend/.env`, template in `backend/.env.example`):
 | Variable | Purpose |
 | --- | --- |
 | `API_KEY` | device key the Arduino sends in `X-API-Key` (required) |
+| `ADMIN_API_KEY` | separate credential for destructive endpoints; they fail closed (503) without it |
+| `RUN_MIGRATIONS_ON_STARTUP` | apply Alembic migrations at startup instead of `create_all` |
 | `BACKEND_HOST` / `BACKEND_PORT` | bind address/port (use `0.0.0.0`) |
 | `DATABASE_URL` | SQLite by default; PostgreSQL-ready |
 | `DEVICE_ID` | must match `DEVICE_ID` in the firmware |
 | `CORS_ORIGINS` | allowed browser origins (wildcards are ignored, never honoured) |
 | `CORS_ALLOW_LAN_ORIGINS` | also accept RFC1918 browser origins (demo convenience; off by default) |
-| `REQUIRE_AUTH_FOR_READS` | also protect read endpoints |
+| `REQUIRE_AUTH_FOR_READS` | also protect read endpoints (required in production) |
 | `RAIN_*` / `LIGHT_*` / `AIR_QUALITY_*` | ADC calibration; must match the firmware |
 | `ANALYTICS_DEFAULT_HOURS`, `RETENTION_DAYS` | history windows |
 | `OLLAMA_HOST`, `OLLAMA_MODEL` | local Ollama endpoint and model |
@@ -244,7 +246,36 @@ Details, schemas and examples: [`docs/api.md`](docs/api.md) and `/docs`.
 | Frontend cannot reach the API | `VITE_PROXY_TARGET`/`VITE_API_BASE_URL` wrong, or the backend is bound to `127.0.0.1` |
 | Pressure/humidity look implausible | Calibration constants differ between `config.h` and `backend/.env` |
 
-## 11. Design principles
+## 11. Security model
+
+| Surface | Who may use it |
+| --- | --- |
+| `/health`, `/status`, `/meta` | anyone who can reach the API (liveness only, no secrets) |
+| Dashboard reads (sensors, analytics, risk, predictions, alerts, device, realtime) | open on the LAN by default; `REQUIRE_AUTH_FOR_READS=true` requires a key everywhere, including the WebSocket/SSE streams |
+| `POST /sensors/data`, heartbeat, `GET /device/{id}/risk-state` | the **device** key (`API_KEY`) only |
+| `DELETE /device/{id}/readings` (purge) | the **admin** key (`ADMIN_API_KEY`) only - 503 when unset, never the device key |
+| Chat history / context / suggestions, alert acknowledge+resolve | follow the read policy; a session id is never sufficient authorization |
+
+* Two credentials, deliberately disjoint: a leaked node key cannot purge history,
+  and an admin console cannot POST sensor data.
+* Keys are compared in constant time, rejected when templated/short/weak (the
+  server answers 503 naming the reason instead of accepting a forgeable secret),
+  and never logged or echoed in a response.
+* `ENVIRONMENT=production` **refuses to start** with `DEBUG=true`,
+  `REQUIRE_AUTH_FOR_READS=false`, or LAN-wide CORS combined with a wildcard bind.
+* Responses carry `X-Content-Type-Options`, `Referrer-Policy`, `X-Frame-Options`
+  and a conservative CSP; CORS stays an explicit allow-list and a `*` entry is
+  ignored. HSTS is not sent - the LAN link is plain HTTP.
+* Credential literals that were once committed in tests/docs are blacklisted from
+  ever authenticating; the test suite generates its own keys per run.
+* Destructive/ingest/LLM paths are rate-limited (chat 20/min, ingestion 600/min,
+  Ollama probes and forecast snapshot writes 60/min per client).
+
+See [`backend/README.md`](backend/README.md) and [`docs/api.md`](docs/api.md) for
+the full policy, and [`docs/hardware.md`](docs/hardware.md) for the bring-up
+checklist that still has to be performed on real hardware.
+
+## 12. Design principles
 
 * **One risk model.** The score, its level, its reasons and its recommended
   actions are computed once, in the backend, and reused by the API, the

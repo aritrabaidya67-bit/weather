@@ -388,6 +388,11 @@ class Settings(BaseSettings):
     # --- storage ----------------------------------------------------------
     database_url: str = f"sqlite:///{(BACKEND_DIR / 'data' / 'environmental.db').as_posix()}"
     retention_days: int = 365
+    #: Apply Alembic migrations at startup instead of ``create_all``.
+    #: Recommended for production (see backend/README.md -> Migrations); the
+    #: default keeps the zero-setup development experience. When true a failed
+    #: migration aborts the start instead of serving a half-migrated schema.
+    run_migrations_on_startup: bool = False
 
     # --- device -----------------------------------------------------------
     device_id: str = "arduino-r4-wifi-01"

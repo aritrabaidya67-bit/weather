@@ -290,7 +290,14 @@ export async function streamChat(
   }
 }
 
-/** WebSocket URL for the realtime bus (proxied in dev, absolute in production). */
+/** WebSocket URL for the realtime bus (proxied in dev, absolute in production).
+ *
+ * When REQUIRE_AUTH_FOR_READS is enabled on the backend, the browser WebSocket
+ * API cannot set headers, so the realtime key travels as a query parameter and
+ * is validated server-side like any other credential. It is supplied by the
+ * operator through VITE_REALTIME_API_KEY (build-time, never a user secret
+ * embedded per-session).
+ */
 export function realtimeUrl(topics: string[], lastEventId = 0): string {
   const explicit = import.meta.env.VITE_WS_URL as string | undefined;
   const base = explicit
@@ -298,9 +305,11 @@ export function realtimeUrl(topics: string[], lastEventId = 0): string {
     : API_BASE_URL
       ? API_BASE_URL.replace(/^http/, "ws")
       : `${window.location.protocol === "https:" ? "wss" : "ws"}://${window.location.host}`;
-  return `${base}/api/v1/realtime/ws${query({ topics: topics.join(","), last_event_id: lastEventId })}`;
+  const apiKey = (import.meta.env.VITE_REALTIME_API_KEY as string | undefined) ?? "";
+  return `${base}/api/v1/realtime/ws${query({ topics: topics.join(","), last_event_id: lastEventId, api_key: apiKey || undefined })}`;
 }
 
 export function sseUrl(topics: string[], lastEventId = 0): string {
-  return `${API_PREFIX}/realtime/events${query({ topics: topics.join(","), last_event_id: lastEventId })}`;
+  const apiKey = (import.meta.env.VITE_REALTIME_API_KEY as string | undefined) ?? "";
+  return `${API_PREFIX}/realtime/events${query({ topics: topics.join(","), last_event_id: lastEventId, api_key: apiKey || undefined })}`;
 }

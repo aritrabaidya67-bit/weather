@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import sys
 import time
 from typing import Any
@@ -145,9 +144,6 @@ def configure_logging(level: str = "INFO", as_json: bool = False) -> None:
         uvicorn_logger = logging.getLogger(noisy)
         uvicorn_logger.handlers.clear()
         uvicorn_logger.propagate = True
-    if os.environ.get("NO_COLOR"):
-        for record_attr in ("_LEVEL_COLORS",):
-            pass
     _CONFIGURED = True
 
 

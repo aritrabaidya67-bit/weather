@@ -33,6 +33,7 @@ configure_logging(settings.log_level, settings.log_json)
 logger = get_logger("app.main")
 
 API_PREFIX = "/api/v1"
+APP_VERSION = "1.0.0"
 
 DESCRIPTION = """
 **Environmental Intelligence Platform** - FastAPI backend.
@@ -53,6 +54,58 @@ data.
 """
 
 
+def _validate_startup_configuration() -> tuple[list[str], list[str]]:
+    """Refuse configurations that would be silently unsafe.
+
+    Deliberate development conveniences (open reads, DEBUG) are allowed, but a
+    *production* deployment must not inherit them by accident: the process exits
+    at startup rather than serving an insecure API. Returns (problems, warnings):
+    problems abort the start, warnings are logged and non-fatal.
+    """
+    problems: list[str] = []
+    warnings: list[str] = []
+    is_production = settings.environment.strip().lower() in {"production", "prod"}
+
+    if is_production:
+        if settings.debug:
+            problems.append("DEBUG=true is not allowed when ENVIRONMENT=production.")
+        if not settings.require_auth_for_reads:
+            problems.append(
+                "REQUIRE_AUTH_FOR_READS=false is not allowed when ENVIRONMENT=production. "
+                "Set it to true so the dashboard and every read endpoint require the API key."
+            )
+        if settings.backend_host.strip() in {"0.0.0.0", "", "::"} and settings.cors_allow_lan_origins:
+            # Binding everywhere plus blanket private-range CORS is a
+            # demo convenience; in production list exact origins instead.
+            problems.append(
+                "CORS_ALLOW_LAN_ORIGINS=true must not be combined with a wildcard bind in "
+                "production. List the exact frontend origin in CORS_ORIGINS."
+            )
+        admin_problem = (
+            key_strength_problem(settings.admin_api_key)
+            if settings.admin_api_key
+            else "ADMIN_API_KEY is not set; destructive endpoints (/device/{id}/readings) answer 503."
+        )
+        if settings.admin_api_key is None:
+            warnings.append(admin_problem)
+        elif admin_problem:
+            problems.append(f"ADMIN_API_KEY is set but unusable: {admin_problem}")
+
+    key_problem = key_strength_problem(settings.api_key)
+    if key_problem:
+        warnings.append(
+            "Device endpoints (/sensors/data, /device/*/risk-state) return HTTP 503 until a "
+            f"real key is set: {key_problem} Generate one with: "
+            'python -c "import secrets; print(secrets.token_urlsafe(32))"'
+        )
+    if settings.admin_api_key and settings.admin_api_key == settings.api_key:
+        warnings.append(
+            "ADMIN_API_KEY equals API_KEY; the admin boundary is meaningless when both "
+            "credentials are the same value. Generate a separate admin key."
+        )
+    return problems, warnings
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     logger.info(
@@ -64,17 +117,19 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     )
     register_secret(settings.api_key)
     register_secret(settings.admin_api_key)
-    key_problem = key_strength_problem(settings.api_key)
-    if key_problem:
-        logger.warning(
-            "api_key_not_configured",
-            reason=key_problem,
-            hint=(
-                "Device endpoints (/sensors/data, /device/*/risk-state) return HTTP 503 until a "
-                "real key is set. Generate one with: "
-                'python -c "import secrets; print(secrets.token_urlsafe(32))"'
-            ),
+
+    problems, startup_warnings = _validate_startup_configuration()
+    for warning in startup_warnings:
+        logger.warning("configuration_warning", detail=warning)
+    if problems:
+        for problem in problems:
+            logger.error("configuration_rejected", detail=problem)
+        raise RuntimeError(
+            "Refusing to start with an unsafe production configuration: "
+            + " | ".join(problems)
+            + " (see backend/README.md - 'Secure defaults')"
         )
+
     if settings.cors_wildcard_requested:
         logger.warning(
             "cors_wildcard_ignored",
@@ -103,7 +158,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
 app = FastAPI(
     title=settings.app_name,
     description=DESCRIPTION,
-    version="1.0.0",
+    version=APP_VERSION,
     lifespan=lifespan,
     docs_url="/docs",
     redoc_url="/redoc",
@@ -127,11 +182,26 @@ app.add_middleware(
 
 
 @app.middleware("http")
-async def timing_middleware(request: Request, call_next: Any) -> Any:
+async def security_and_timing_middleware(request: Request, call_next: Any) -> Any:
+    """Security headers + timing, applied to every response.
+
+    The API serves JSON and browser pages (/docs), never embedded HTML from user
+    input, so a conservative CSP and the standard hardening headers cost nothing
+    and remove a class of browser-side mistakes.
+    """
     started = time.perf_counter()
     response = await call_next(request)
     duration_ms = round((time.perf_counter() - started) * 1000, 2)
     response.headers["X-Process-Time"] = str(duration_ms)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; "
+        "frame-ancestors 'none'; form-action 'self'; base-uri 'none'"
+    )
+    # HSTS is only meaningful (and only claimed) behind TLS; the LAN demo is
+    # plain HTTP, so the header is deliberately NOT set here.
     if request.url.path.startswith(API_PREFIX) and duration_ms > 750:
         logger.warning(
             "slow_request",
@@ -203,7 +273,7 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
 def root() -> dict[str, Any]:
     return {
         "name": settings.app_name,
-        "version": "1.0.0",
+        "version": APP_VERSION,
         "api": API_PREFIX,
         "docs": "/docs",
         "health": f"{API_PREFIX}/health",
