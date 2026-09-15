@@ -14,11 +14,20 @@
   --color-accent-400: oklch(0.78 0.14 195);
   --color-accent-500: oklch(0.7 0.15 195);
 
-  --radius-card: 1rem;
+  --radius-card: 1.25rem;
+
+  /* Motion: one shared vocabulary so every transition feels like one product. */
+  --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
+  --duration-fast: 140ms;
+  --duration-base: 240ms;
+  --duration-slow: 420ms;
 
   --animate-pulse-ring: pulse-ring 2.4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-  --animate-float-in: float-in 0.4s ease-out both;
+  --animate-float-in: float-in 0.4s var(--ease-out-soft) both;
   --animate-shimmer: shimmer 2.2s linear infinite;
+  --animate-breathe: breathe 5.5s ease-in-out infinite;
+  --animate-drift: drift 14s linear infinite;
+  --animate-sheen: sheen 3.4s var(--ease-out-soft) infinite;
 }
 
 @keyframes pulse-ring {
@@ -56,6 +65,37 @@
   }
 }
 
+@keyframes breathe {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.85;
+  }
+  50% {
+    transform: scale(1.035);
+    opacity: 1;
+  }
+}
+
+@keyframes drift {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes sheen {
+  0%,
+  55% {
+    transform: translateX(-120%);
+  }
+  100% {
+    transform: translateX(120%);
+  }
+}
+
 @layer base {
   html {
     -webkit-text-size-adjust: 100%;
@@ -73,6 +113,13 @@
   /* Numeric readouts line up when values change. */
   .tabular {
     font-variant-numeric: tabular-nums;
+  }
+
+  /* Keyboard users get the same affordance mouse users get from hover. */
+  :focus-visible {
+    outline: 2px solid var(--color-accent-500);
+    outline-offset: 2px;
+    border-radius: 6px;
   }
 
   * {
@@ -106,8 +153,35 @@
     dark:border-slate-800/80 dark:bg-slate-900/60 dark:shadow-lg dark:shadow-slate-950/40;
 }
 
+/* Hero surface: the one place that carries depth and a tinted glow. */
+@utility panel-hero {
+  @apply relative overflow-hidden rounded-[1.5rem] border border-slate-200/70 bg-white/95
+    dark:border-slate-800/70 dark:bg-slate-900/70;
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.04),
+    0 18px 40px -24px rgba(15, 23, 42, 0.35);
+}
+
 @utility panel-muted {
   @apply rounded-2xl border border-slate-200/70 bg-slate-50/80 dark:border-slate-800/70 dark:bg-slate-900/40;
+}
+
+/* Tiles: interactive surfaces that lift on hover. */
+@utility tile {
+  @apply relative overflow-hidden rounded-2xl border border-slate-200/70 bg-white/90 p-3.5 transition-all
+    dark:border-slate-800/70 dark:bg-slate-900/50;
+  transition-duration: var(--duration-base);
+  transition-timing-function: var(--ease-out-soft);
+}
+
+@utility tile-hover {
+  @apply hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md
+    dark:hover:border-slate-700 dark:hover:bg-slate-900/80;
+}
+
+@utility rail-item {
+  @apply flex items-center gap-2.5 rounded-xl px-2.5 py-2 text-sm font-medium transition-colors;
+  transition-duration: var(--duration-fast);
 }
 
 @utility skeleton {
@@ -120,4 +194,14 @@
   background-size: 200% 100%;
   animation: var(--animate-shimmer);
   @apply rounded-md;
+}
+
+@utility hairline {
+  @apply border-slate-200/80 dark:border-slate-800/80;
+}
+
+/* A soft tinted wash used behind the hero status orb. */
+@utility aura {
+  filter: blur(28px);
+  opacity: 0.55;
 }

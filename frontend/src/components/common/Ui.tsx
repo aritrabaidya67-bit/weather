@@ -1,8 +1,8 @@
 /** Shared UI primitives: cards, badges, states, indicators. */
 
-import { motion } from "framer-motion";
-import type { ReactNode } from "react";
-import { AlertTriangle, Database, Info, Loader2, Radio, TrendingUp } from "lucide-react";
+import { AnimatePresence, motion } from "framer-motion";
+import { useState, type ReactNode } from "react";
+import { AlertTriangle, ChevronDown, Database, Info, Loader2, Radio, TrendingUp } from "lucide-react";
 import { SEVERITY_CLASSES, SEVERITY_DOT, classNames, dataSourceLabel } from "../../utils/format";
 
 export function Card({
@@ -244,6 +244,51 @@ export function ErrorState({
           Try again
         </button>
       ) : null}
+    </div>
+  );
+}
+
+/**
+ * Collapsible detail. Keeps method notes, feature lists and raw numbers one
+ * click away instead of stacking them into every card.
+ */
+export function Disclosure({
+  label,
+  children,
+  className,
+  icon,
+}: {
+  label: string;
+  children: ReactNode;
+  className?: string;
+  icon?: ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className={className}>
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        aria-expanded={open}
+        className="inline-flex items-center gap-1.5 rounded-lg text-[11px] font-medium text-slate-500 transition hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100"
+      >
+        {icon}
+        {label}
+        <ChevronDown size={13} className={classNames("transition-transform duration-200", open && "rotate-180")} />
+      </button>
+      <AnimatePresence initial={false}>
+        {open ? (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+            className="overflow-hidden"
+          >
+            <div className="pt-2">{children}</div>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
     </div>
   );
 }

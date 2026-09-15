@@ -172,9 +172,13 @@ export default function Analytics() {
             <ul className="space-y-2">
               {Object.entries(compare).map(([key, row]) => (
                 <li key={key} className="flex items-start justify-between gap-3 rounded-xl px-3 py-2 odd:bg-slate-50/70 dark:odd:bg-slate-900/40">
-                  <div>
+                  <div className="min-w-0">
                     <p className="text-sm font-medium text-slate-700 dark:text-slate-200">{row.label}</p>
-                    <p className="text-[11px] text-slate-500 dark:text-slate-400">{row.message}</p>
+                    {row.sufficient_comparison ? (
+                      <p className="tabular text-[11px] text-slate-500 dark:text-slate-400">
+                        {row.previous_mean?.toFixed(1) ?? "—"} → {row.current_mean?.toFixed(1) ?? "—"} {row.unit}
+                      </p>
+                    ) : null}
                   </div>
                   <span
                     className={classNames(
@@ -194,6 +198,12 @@ export default function Analytics() {
           ) : (
             <CardSkeleton />
           )}
+          {compare && Object.values(compare).some((row) => !row.sufficient_comparison) ? (
+            <InlineNote severity="info" className="mt-3">
+              Channels shown as — have no earlier window to compare against yet; comparisons fill in as history
+              accumulates.
+            </InlineNote>
+          ) : null}
         </Card>
 
         <Card>

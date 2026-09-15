@@ -84,4 +84,7 @@ class RiskModelResponse(BaseModel):
     levels: list[RiskLevelInfo]
     factors: list[dict[str, Any]]
     weights: dict[str, float]
+    #: Cross-sensor rules that only fire when several conditions hold at once;
+    #: the risk page explains them, so they must survive serialisation.
+    combination_rules: list[dict[str, Any]] = Field(default_factory=list)
     notes: list[str] = Field(default_factory=list)

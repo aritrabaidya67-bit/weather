@@ -7,10 +7,47 @@ import { AlertFeed, AnomalyList, RiskBreakdown } from "../components/dashboard/P
 import { Card, CardSkeleton, Chip, DataBadge, EmptyState, InlineNote, SectionHeader } from "../components/common/Ui";
 import { api } from "../services/api";
 import { usePlatform } from "../state/PlatformContext";
-import type { RiskModel } from "../types";
-import { classNames, riskColor } from "../utils/format";
+import type { RiskModel, SensorSpec } from "../types";
+import { classNames, riskColor, unitSymbol } from "../utils/format";
 
 const LEVEL_BLUZ = ["silent", "silent", "occasional beep", "repeated warning pattern", "critical alarm pattern"];
+
+/**
+ * Rule reasons are templates on the backend: placeholders such as
+ * "{heat_index_c:.1f}" are only substituted when the rule actually fires, so a
+ * static model description must never be rendered verbatim.
+ */
+function cleanReason(reason: string | null | undefined): string | null {
+  if (!reason) return null;
+  return /\{[^}]*\}/.test(reason) ? null : reason;
+}
+
+/** "Temperature ≥ 30 °C and Relative Humidity ≥ 60 %RH", built from the real config. */
+function describeConditions(
+  conditions: Record<string, { min?: number | null; max?: number | null }> | null | undefined,
+  sensors: SensorSpec[] | undefined,
+): string {
+  if (!conditions) return "";
+  const parts: string[] = [];
+  for (const [key, bounds] of Object.entries(conditions)) {
+    const spec = sensors?.find((item) => item.key === key);
+    const label = spec?.label ?? key.replace(/_/g, " ");
+    const unit = unitSymbol(spec?.unit);
+    const min = typeof bounds?.min === "number" ? bounds.min : null;
+    const max = typeof bounds?.max === "number" ? bounds.max : null;
+    if (min === null && max === null) continue;
+    const show = (value: number) =>
+      `${Number.isInteger(value) ? value : value.toFixed(1)}${unit ? ` ${unit}` : ""}`;
+    const clause =
+      min !== null && max !== null
+        ? `between ${show(min)} and ${show(max)}`
+        : min !== null
+          ? `≥ ${show(min)}`
+          : `≤ ${show(max as number)}`;
+    parts.push(`${label} ${clause}`);
+  }
+  return parts.join(" and ");
+}
 
 export default function RiskPage() {
   const { overview, meta } = usePlatform();
@@ -24,7 +61,7 @@ export default function RiskPage() {
     void api
       .riskAnalysis(undefined, 6)
       .then((response) => {
-        setTrend(response.trend);
+        setTrend(response.trend ?? []);
         setTrendDirection(response.trend_direction);
         setTrendChange(response.trend_change);
       })
@@ -107,7 +144,7 @@ export default function RiskPage() {
         {model ? (
           <div className="space-y-5">
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-              {model.levels.map((level) => (
+              {(model.levels ?? []).map((level) => (
                 <div
                   key={level.level}
                   className={classNames(
@@ -135,7 +172,7 @@ export default function RiskPage() {
             <div>
               <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Factor weights</p>
               <div className="space-y-2">
-                {model.factors.map((factor) => {
+                {(model.factors ?? []).map((factor) => {
                   const contribution = risk.contributions.find((item) => item.key === factor.key);
                   return (
                     <div key={factor.key} className="space-y-1">
@@ -170,18 +207,28 @@ export default function RiskPage() {
                 Cross-sensor combination rules
               </p>
               <ul className="space-y-1.5">
-                {model.combination_rules.map((rule) => (
-                  <li key={rule.id} className="rounded-xl bg-slate-50/70 px-3 py-2 text-xs text-slate-600 dark:bg-slate-900/40 dark:text-slate-300">
-                    <span className="font-medium text-slate-700 dark:text-slate-200">{rule.label}</span> (+{rule.points} points)
-                    <span className="ml-1 text-slate-500 dark:text-slate-400">— {rule.reason}</span>
-                  </li>
-                ))}
+                {(model.combination_rules ?? []).map((rule) => {
+                  const trigger = describeConditions(rule.conditions, meta?.sensors);
+                  const reason = cleanReason(rule.reason);
+                  return (
+                    <li
+                      key={rule.id}
+                      title={reason ?? undefined}
+                      className="rounded-xl bg-slate-50/70 px-3 py-2 text-xs text-slate-600 dark:bg-slate-900/40 dark:text-slate-300"
+                    >
+                      <span className="font-medium text-slate-700 dark:text-slate-200">{rule.label}</span> (+{rule.points}{" "}
+                      points)
+                      <span className="ml-1 text-slate-500 dark:text-slate-400">
+                        — {trigger || reason || "configured on the backend"}
+                        {trigger && reason ? ` · ${reason}` : ""}
+                      </span>
+                    </li>
+                  );
+                })}
               </ul>
             </div>
 
-            <InlineNote severity="info">
-              {model.notes.join(" ")}
-            </InlineNote>
+            <InlineNote severity="info">{(model.notes ?? []).join(" ")}</InlineNote>
           </div>
         ) : (
           <CardSkeleton />

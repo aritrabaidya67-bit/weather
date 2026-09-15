@@ -28,7 +28,7 @@ export default function SettingsPage() {
         icon={<SettingsIcon size={16} />}
       />
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid items-start gap-4 lg:grid-cols-2">
         <Card>
           <SectionHeader title="Appearance" className="mb-3" />
           <div className="flex items-center gap-3">

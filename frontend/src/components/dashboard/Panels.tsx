@@ -334,56 +334,63 @@ export function SensorHealthTable({ sensors }: { sensors: SensorHealth[] }) {
       />
     );
   }
-  const statusLabel: Record<string, { label: string; severity: string }> = {
-    ok: { label: "healthy", severity: "good" },
-    degraded: { label: "degraded", severity: "watch" },
-    stale: { label: "stale", severity: "warning" },
-    suspect: { label: "suspect", severity: "warning" },
-    failed: { label: "failed", severity: "critical" },
-    unknown: { label: "unknown", severity: "unknown" },
+  const statusLabel: Record<string, { label: string; severity: string; dot: string }> = {
+    ok: { label: "healthy", severity: "good", dot: "bg-emerald-500" },
+    degraded: { label: "degraded", severity: "watch", dot: "bg-amber-500" },
+    stale: { label: "stale", severity: "warning", dot: "bg-amber-500" },
+    suspect: { label: "suspect", severity: "warning", dot: "bg-amber-500" },
+    failed: { label: "failed", severity: "critical", dot: "bg-rose-500" },
+    unknown: { label: "unknown", severity: "unknown", dot: "bg-slate-400" },
   };
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full min-w-[520px] text-left text-sm">
-        <thead>
-          <tr className="text-[11px] uppercase tracking-wide text-slate-400">
-            <th className="pb-2 font-medium">Sensor</th>
-            <th className="pb-2 font-medium">Status</th>
-            <th className="pb-2 font-medium">Last value</th>
-            <th className="pb-2 font-medium">Rate</th>
-            <th className="pb-2 font-medium">Coverage</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-slate-200/70 dark:divide-slate-800/70">
-          {sensors.map((sensor) => {
-            const meta = statusLabel[sensor.status] ?? statusLabel.unknown;
-            return (
-              <tr key={sensor.key}>
-                <td className="py-2 pr-3">
-                  <div className="font-medium text-slate-700 dark:text-slate-200">{sensor.label}</div>
-                  <div className="text-[11px] text-slate-400">{sensor.message}</div>
-                </td>
-                <td className="py-2 pr-3">
-                  <Chip severity={meta.severity}>{meta.label}</Chip>
-                </td>
-                <td className="tabular py-2 pr-3 text-slate-600 dark:text-slate-300">
-                  {sensor.last_value !== null ? sensor.last_value.toFixed(1) : "—"}
-                  <span className="ml-1 text-[11px] text-slate-400">
-                    {sensor.last_seen_at ? `(${secondsAgo(sensor.age_seconds)} ago)` : ""}
-                  </span>
-                </td>
-                <td className="tabular py-2 pr-3 text-slate-600 dark:text-slate-300">
-                  {sensor.observed_rate_per_minute?.toFixed(1) ?? "—"} / {sensor.expected_rate_per_minute?.toFixed(1) ?? "—"} per min
-                </td>
-                <td className="tabular py-2 text-slate-600 dark:text-slate-300">
+    <ul className="space-y-1.5">
+      {sensors.map((sensor) => {
+        const meta = statusLabel[sensor.status] ?? statusLabel.unknown;
+        const healthy = sensor.status === "ok";
+        // Age already explains a stale channel, so only faults get a sentence.
+        const explained = sensor.status === "degraded" || sensor.status === "suspect" || sensor.status === "failed";
+        return (
+          <li
+            key={sensor.key}
+            title={sensor.message ?? undefined}
+            className="flex items-center gap-3 rounded-xl px-3 py-2 transition-colors hover:bg-slate-900/[0.03] dark:hover:bg-white/[0.03]"
+          >
+            <span aria-hidden className={classNames("h-1.5 w-1.5 shrink-0 rounded-full", meta.dot)} />
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-[13px] font-medium text-slate-700 dark:text-slate-200">{sensor.label}</span>
+              {healthy || !explained ? null : (
+                <span className="block truncate text-[11px] text-slate-400">{sensor.message}</span>
+              )}
+            </span>
+            <span className="tabular hidden text-[13px] text-slate-600 sm:block dark:text-slate-300">
+              {sensor.last_value !== null ? sensor.last_value.toFixed(1) : "—"}
+              <span className="ml-1 text-[11px] text-slate-400">
+                {sensor.last_seen_at ? `${secondsAgo(sensor.age_seconds)} ago` : "never"}
+              </span>
+            </span>
+            <span className="tabular hidden text-[11px] text-slate-400 lg:block">
+              {sensor.observed_rate_per_minute?.toFixed(1) ?? "—"}/min
+            </span>
+            <span className="w-24 shrink-0">
+              <span className="flex items-center gap-2">
+                <span className="h-1 flex-1 overflow-hidden rounded-full bg-slate-200/80 dark:bg-slate-800">
+                  <span
+                    className={classNames("block h-full rounded-full", meta.dot)}
+                    style={{ width: `${Math.max(4, Math.min(100, sensor.coverage_pct ?? 0))}%` }}
+                  />
+                </span>
+                <span className="tabular w-9 text-right text-[11px] text-slate-400">
                   {sensor.coverage_pct !== null ? `${sensor.coverage_pct.toFixed(0)}%` : "—"}
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
+                </span>
+              </span>
+            </span>
+            <Chip severity={meta.severity} className={healthy ? "opacity-60" : undefined}>
+              {meta.label}
+            </Chip>
+          </li>
+        );
+      })}
+    </ul>
   );
 }
 

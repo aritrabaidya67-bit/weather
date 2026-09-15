@@ -2,7 +2,17 @@
 
 import { AlertCircle, CloudRain, Info, Target, TrendingUp } from "lucide-react";
 import { useEffect, useState } from "react";
-import { Card, CardSkeleton, Chip, ConfidenceBar, DataBadge, EmptyState, InlineNote, SectionHeader } from "../components/common/Ui";
+import {
+  Card,
+  CardSkeleton,
+  Chip,
+  ConfidenceBar,
+  DataBadge,
+  Disclosure,
+  EmptyState,
+  InlineNote,
+  SectionHeader,
+} from "../components/common/Ui";
 import { api } from "../services/api";
 import { usePlatform } from "../state/PlatformContext";
 import type { MetricPrediction, PredictionAccuracy, PredictionResponse, RiskForecast } from "../types";
@@ -161,16 +171,18 @@ export default function PredictionsPage() {
                     </span>
                   </div>
                   <ConfidenceBar confidence={prediction.rain.confidence} label="Heuristic confidence" />
-                  <p className="text-xs text-slate-500 dark:text-slate-400">{prediction.rain.reasoning}</p>
-                  {prediction.rain.inputs ? (
-                    <ul className="grid grid-cols-2 gap-1 text-[11px] text-slate-500 dark:text-slate-400">
-                      {Object.entries(prediction.rain.inputs).map(([key, value]) => (
-                        <li key={key}>
-                          {key.replace(/_/g, " ")}: <span className="tabular">{Number(value).toFixed(2)}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : null}
+                  <Disclosure label="How this was estimated">
+                    <p className="text-[11px] leading-relaxed text-slate-500 dark:text-slate-400">{prediction.rain.reasoning}</p>
+                    {prediction.rain.inputs ? (
+                      <ul className="mt-1.5 grid grid-cols-2 gap-1 text-[11px] text-slate-500 dark:text-slate-400">
+                        {Object.entries(prediction.rain.inputs).map(([key, value]) => (
+                          <li key={key}>
+                            {key.replace(/_/g, " ")}: <span className="tabular">{Number(value).toFixed(2)}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
+                  </Disclosure>
                 </div>
               ) : (
                 <InlineNote severity="watch">Rain probability needs at least five recent readings.</InlineNote>
@@ -179,7 +191,12 @@ export default function PredictionsPage() {
           </div>
 
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            {Object.values(prediction?.metrics ?? {}).map((metric: MetricPrediction) => (
+            {Object.values(prediction?.metrics ?? {}).map((metric: MetricPrediction) => {
+              const delta =
+                metric.predicted_value !== null && metric.current_value !== null
+                  ? metric.predicted_value - metric.current_value
+                  : null;
+              return (
               <Card key={metric.metric}>
                 <div className="flex items-start justify-between gap-2">
                   <div>
@@ -202,6 +219,17 @@ export default function PredictionsPage() {
                         {metric.predicted_value.toFixed(1)}
                       </span>
                       <span className="text-xs text-slate-400">{unitSymbol(metric.unit)}</span>
+                      {delta !== null && Math.abs(delta) >= 0.05 ? (
+                        <span
+                          className={classNames(
+                            "tabular ml-auto text-xs font-medium",
+                            delta > 0 ? "text-orange-600 dark:text-orange-300" : "text-sky-600 dark:text-sky-300",
+                          )}
+                        >
+                          {delta > 0 ? "+" : ""}
+                          {delta.toFixed(1)} {unitSymbol(metric.unit)}
+                        </span>
+                      ) : null}
                     </div>
                     <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
                       expected range {metric.lower_bound?.toFixed(1)} – {metric.upper_bound?.toFixed(1)} {unitSymbol(metric.unit)}
@@ -210,7 +238,6 @@ export default function PredictionsPage() {
                         : ""}
                     </p>
                     <ConfidenceBar confidence={metric.confidence} label={`confidence (${confidenceLabel(metric.confidence)})`} className="mt-3" />
-                    <p className="mt-3 text-[11px] leading-relaxed text-slate-500 dark:text-slate-400">{metric.reasoning}</p>
                     {metric.warnings.length ? (
                       <ul className="mt-2 space-y-0.5">
                         {metric.warnings.map((warning) => (
@@ -220,10 +247,13 @@ export default function PredictionsPage() {
                         ))}
                       </ul>
                     ) : null}
-                    <p className="mt-2 text-[10px] text-slate-400">
-                      features: {metric.features.join(" · ") || "—"} · {metric.samples_used} samples ·{" "}
-                      {metric.r_squared !== null ? `R² ${metric.r_squared.toFixed(2)}` : "no R²"}
-                    </p>
+                    <Disclosure label="How this was estimated" className="mt-2">
+                      <p className="text-[11px] leading-relaxed text-slate-500 dark:text-slate-400">{metric.reasoning}</p>
+                      <p className="mt-1.5 text-[10px] text-slate-400">
+                        features: {metric.features.join(" · ") || "—"} · {metric.samples_used} samples ·{" "}
+                        {metric.r_squared !== null ? `R² ${metric.r_squared.toFixed(2)}` : "no R²"}
+                      </p>
+                    </Disclosure>
                   </>
                 ) : (
                   <InlineNote severity="watch" className="mt-3">
@@ -231,7 +261,8 @@ export default function PredictionsPage() {
                   </InlineNote>
                 )}
               </Card>
-            ))}
+              );
+            })}
           </div>
 
           {prediction?.summary.length ? (

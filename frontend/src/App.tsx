@@ -3,6 +3,7 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { Route, Routes, useLocation } from "react-router-dom";
 import { AppShell } from "./components/layout/AppShell";
+import { ErrorBoundary } from "./components/common/ErrorBoundary";
 import { Card, EmptyState } from "./components/common/Ui";
 import AlertsPage from "./pages/AlertsPage";
 import Analytics from "./pages/Analytics";
@@ -27,6 +28,8 @@ export default function App() {
           exit={{ opacity: 0, y: -4 }}
           transition={{ duration: 0.22, ease: "easeOut" }}
         >
+          {/* Keyed by path, so a crashed page recovers as soon as you navigate. */}
+          <ErrorBoundary key={location.pathname}>
           <Routes location={location}>
             <Route path="/" element={<Dashboard />} />
             <Route path="/sensors" element={<Sensors />} />
@@ -50,6 +53,7 @@ export default function App() {
               }
             />
           </Routes>
+          </ErrorBoundary>
         </motion.div>
       </AnimatePresence>
     </AppShell>

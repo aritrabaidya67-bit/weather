@@ -58,7 +58,15 @@ export interface RiskModel {
     note: string | null;
   }[];
   weights: Record<string, number>;
-  combination_rules: { id: string; label: string; reason: string; points: number }[];
+  combination_rules: {
+    id: string;
+    label: string;
+    reason: string;
+    action?: string | null;
+    points: number;
+    /** Metric -> inclusive bound. Present so the UI can state the real trigger. */
+    conditions?: Record<string, { min?: number | null; max?: number | null }> | null;
+  }[];
   notes: string[];
 }
 

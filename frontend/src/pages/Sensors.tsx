@@ -3,7 +3,7 @@
 import { Activity, ChevronRight, Gauge } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Sparkline } from "../components/charts/Sparkline";
-import { Chip, DataBadge, EmptyState, SectionHeader, StatusDot } from "../components/common/Ui";
+import { Chip, DataBadge, Disclosure, EmptyState, SectionHeader, StatusDot } from "../components/common/Ui";
 import { Card } from "../components/common/Ui";
 import { SensorHealthTable } from "../components/dashboard/Panels";
 import { usePlatform } from "../state/PlatformContext";
@@ -114,6 +114,7 @@ export default function Sensors() {
           subtitle="Physical ranges, units and calibration notes as configured on the backend."
           className="mb-3"
         />
+        <Disclosure label="Show ranges and calibration">
         <div className="overflow-x-auto">
           <table className="w-full min-w-[680px] text-left text-sm">
             <thead>
@@ -145,6 +146,7 @@ export default function Sensors() {
             </tbody>
           </table>
         </div>
+        </Disclosure>
       </Card>
     </div>
   );
